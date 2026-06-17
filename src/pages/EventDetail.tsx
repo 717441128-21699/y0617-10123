@@ -1,0 +1,1011 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, Link } from 'react-router-dom';
+import {
+  ArrowLeft,
+  Archive,
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Users,
+  Clock,
+  TrendingUp as TrendingUpIcon,
+  AlertCircle,
+  MessageSquare,
+  ThumbsUp,
+  ThumbsDown,
+  Minus,
+  BarChart3,
+  Radar,
+  BookOpen,
+  Lightbulb,
+  CheckCircle2,
+  XCircle,
+  Star,
+} from 'lucide-react';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Radar as RadarChartComp,
+} from 'recharts';
+import PageContainer from '@/components/layout/PageContainer';
+import Button from '@/components/common/Button';
+import Modal from '@/components/common/Modal';
+import EmptyState from '@/components/common/EmptyState';
+import StatusStepper from '@/components/common/StatusStepper';
+import EventStatusBadge from '@/components/events/EventStatusBadge';
+import SeverityIndicator from '@/components/events/SeverityIndicator';
+import EventTimeline from '@/components/events/EventTimeline';
+import TaskKanbanColumn from '@/components/tasks/TaskKanbanColumn';
+import TaskForm from '@/components/tasks/TaskForm';
+import { useEventStore } from '@/store/eventStore';
+import { useTaskStore } from '@/store/taskStore';
+import { useDocStore } from '@/store/docStore';
+import { useKnowledgeStore } from '@/store/knowledgeStore';
+import { useUserStore } from '@/store/userStore';
+import { formatDateTime, formatRelative, formatDate, daysBetween } from '@/utils/date';
+import { formatReach, getInitials } from '@/utils/format';
+import {
+  getPlatformLabel,
+  getEventStatusConfig,
+  getSeverityConfig,
+  getDocTypeConfig,
+  getApprovalStatusConfig,
+  getTaskStatusConfig,
+  getRoleLabel,
+} from '@/utils/status';
+import { cn } from '@/lib/utils';
+import type {
+  EventStatus,
+  Task,
+  TaskStatus,
+  CommunicationDoc,
+  TimelineEvent,
+  ReviewSummary,
+  SentimentRecord,
+  User,
+  TaskPriority,
+  TaskType,
+} from '@/types';
+
+const EVENT_STATUS_STEPS: { key: EventStatus; label: string }[] = [
+  { key: 'pending', label: '待处理' },
+  { key: 'responding', label: '响应中' },
+  { key: 'processing', label: '处理中' },
+  { key: 'monitoring', label: '监测中' },
+  { key: 'resolved', label: '已解决' },
+  { key: 'archived', label: '已归档' },
+];
+
+const TABS = [
+  { key: 'overview', label: '概览', icon: BookOpen },
+  { key: 'tasks', label: '任务', icon: CheckCircle2 },
+  { key: 'communications', label: '沟通', icon: MessageSquare },
+  { key: 'sentiment', label: '舆情', icon: TrendingUpIcon },
+  { key: 'timeline', label: '时间线', icon: Clock },
+  { key: 'review', label: '复盘', icon: Lightbulb },
+] as const;
+
+type TabKey = typeof TABS[number]['key'];
+
+const TASK_STATUS_LIST: TaskStatus[] = ['todo', 'in_progress', 'review', 'completed', 'cancelled'];
+const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  todo: '待办',
+  in_progress: '进行中',
+  review: '审核中',
+  completed: '已完成',
+  cancelled: '已取消',
+};
+
+const SENTIMENT_COLORS = {
+  negative: '#ef4444',
+  neutral: '#94a3b8',
+  positive: '#22c55e',
+};
+
+export default function EventDetail() {
+  const navigate = useNavigate();
+  const { id = '' } = useParams<{ id: string }>();
+  const { getEventById, updateEventStatus, initEvents } = useEventStore();
+  const { getTasksByEventId, addTask, initTasks, updateTaskStatus } = useTaskStore();
+  const { getDocsByEventId, initDocs } = useDocStore();
+  const {
+    getSentimentByEventId,
+    getTimelineByEventId,
+    getReviewByEventId,
+    addSentimentRecord,
+    addTimelineEvent,
+    addReviewSummary,
+    initAll,
+  } = useKnowledgeStore();
+  const { users, initUsers, getUserById, currentUserId } = useUserStore();
+
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const [loading, setLoading] = useState(true);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [showDocEditor, setShowDocEditor] = useState<string | null>(null);
+  const [showTimelineModal, setShowTimelineModal] = useState(false);
+  const [showSentimentForm, setShowSentimentForm] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState<CommunicationDoc | null>(null);
+
+  const event = getEventById(id);
+  const tasks = getTasksByEventId(id);
+  const docs = getDocsByEventId(id);
+  const sentiments = getSentimentByEventId(id);
+  const timeline = getTimelineByEventId(id);
+  const review = getReviewByEventId(id);
+
+  const [sentimentForm, setSentimentForm] = useState({
+    mentionCount: 0,
+    negativeCount: 0,
+    neutralCount: 0,
+    positiveCount: 0,
+    note: '',
+  });
+  const [timelineForm, setTimelineForm] = useState({
+    type: 'note' as TimelineEvent['type'],
+    title: '',
+    description: '',
+    timestamp: new Date().toISOString().slice(0, 16),
+  });
+  const [reviewForm, setReviewForm] = useState({
+    strengths: '',
+    weaknesses: '',
+    rootCause: '',
+    suggestions: '',
+    responseTime: 3,
+    communication: 3,
+    execution: 3,
+    overallRating: 3,
+    lessonsText: '',
+  });
+
+  useEffect(() => {
+    initUsers();
+    initEvents();
+    initTasks();
+    initDocs();
+    initAll();
+    const timer = setTimeout(() => setLoading(false), 400);
+    return () => clearTimeout(timer);
+  }, [initUsers, initEvents, initTasks, initDocs, initAll]);
+
+  const currentStepIndex = useMemo(() => {
+    if (!event) return 0;
+    return Math.max(0, EVENT_STATUS_STEPS.findIndex((s) => s.key === event.status));
+  }, [event]);
+
+  const assigneeUsers = useMemo(() => {
+    if (!event) return [];
+    return event.assignees.map((uid) => getUserById(uid)).filter(Boolean) as User[];
+  }, [event, getUserById]);
+
+  const handleStatusChange = (newStatus: EventStatus) => {
+    if (!event) return;
+    updateEventStatus(id, newStatus);
+  };
+
+  const handleArchive = () => {
+    if (!event) return;
+    updateEventStatus(id, 'archived');
+  };
+
+  const handleCreateTask = (data: Partial<Task>) => {
+    addTask({ ...data, eventId: id });
+    setShowTaskModal(false);
+  };
+
+  const handleSubmitSentiment = () => {
+    addSentimentRecord({
+      ...sentimentForm,
+      eventId: id,
+      platformBreakdown: [],
+      recordedBy: currentUserId,
+    });
+    setShowSentimentForm(false);
+    setSentimentForm({ mentionCount: 0, negativeCount: 0, neutralCount: 0, positiveCount: 0, note: '' });
+  };
+
+  const handleSubmitTimeline = () => {
+    addTimelineEvent({
+      ...timelineForm,
+      eventId: id,
+      timestamp: new Date(timelineForm.timestamp).toISOString(),
+      createdBy: currentUserId,
+    });
+    setShowTimelineModal(false);
+    setTimelineForm({ type: 'note', title: '', description: '', timestamp: new Date().toISOString().slice(0, 16) });
+  };
+
+  const handleSubmitReview = () => {
+    addReviewSummary({
+      ...reviewForm,
+      eventId: id,
+      lessons: reviewForm.lessonsText.split('\n').filter(Boolean),
+      completedBy: currentUserId,
+    });
+    setReviewForm({
+      strengths: '', weaknesses: '', rootCause: '', suggestions: '',
+      responseTime: 3, communication: 3, execution: 3, overallRating: 3, lessonsText: '',
+    });
+  };
+
+  const sentimentChartData = useMemo(() => {
+    if (sentiments.length === 0) return [];
+    return sentiments.map((s) => ({
+      date: formatDate(s.recordedAt).slice(5),
+      提及量: s.mentionCount,
+      负面: s.negativeCount,
+      中性: s.neutralCount,
+      正面: s.positiveCount,
+    }));
+  }, [sentiments]);
+
+  const sentimentPieData = useMemo(() => {
+    if (sentiments.length === 0) return [];
+    const total = sentiments[sentiments.length - 1];
+    return [
+      { name: '负面', value: total.negativeCount },
+      { name: '中性', value: total.neutralCount },
+      { name: '正面', value: total.positiveCount },
+    ].filter((d) => d.value > 0);
+  }, [sentiments]);
+
+  const tasksByStatus = useMemo(() => {
+    const map: Record<TaskStatus, Task[]> = {
+      todo: [], in_progress: [], review: [], completed: [], cancelled: [],
+    };
+    tasks.forEach((t) => map[t.status].push(t));
+    return map;
+  }, [tasks]);
+
+  if (loading) {
+    return (
+      <PageContainer title="加载中..." subtitle="正在加载事件详情">
+        <div className="space-y-4">
+          <div className="card p-6 h-40 animate-pulse bg-slate-100" />
+          <div className="card p-6 h-64 animate-pulse bg-slate-100" />
+        </div>
+      </PageContainer>
+    );
+  }
+
+  if (!event) {
+    return (
+      <PageContainer title="事件不存在" subtitle="该事件可能已被删除或ID无效">
+        <EmptyState
+          icon={<AlertCircle className="w-12 h-12" />}
+          title="事件不存在"
+          description="请检查事件ID是否正确，或返回事件列表查看其他事件"
+          action={
+            <Button onClick={() => navigate('/events')}>返回事件列表</Button>
+          }
+        />
+      </PageContainer>
+    );
+  }
+
+  const isResolved = event.status === 'resolved' || event.status === 'archived';
+  const severityCfg = getSeverityConfig(event.severity);
+
+  const renderOverview = () => (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div className="lg:col-span-8 space-y-4">
+        <div className="card p-5">
+          <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4">基本信息</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-slate-400 mb-1">事件起因</p>
+              <p className="text-slate-700 leading-relaxed">{event.cause}</p>
+            </div>
+            <div>
+              <p className="text-slate-400 mb-1">发现时间</p>
+              <p className="text-slate-700 flex items-center gap-1.5">
+                <Clock className="w-4 h-4" />
+                {formatDateTime(event.discoveredAt)}
+                <span className="text-slate-400">({formatRelative(event.discoveredAt)})</span>
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-400 mb-1">涉及平台</p>
+              <div className="flex flex-wrap gap-1.5">
+                {event.platforms.length > 0 ? event.platforms.map((p) => (
+                  <span key={p} className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                    {getPlatformLabel(p)}
+                  </span>
+                )) : <span className="text-slate-400">未填写</span>}
+              </div>
+            </div>
+            <div>
+              <p className="text-slate-400 mb-1">事件分类</p>
+              <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-xs font-medium', severityCfg.bgColor, severityCfg.textColor)}>
+                {event.category}
+              </span>
+            </div>
+            <div>
+              <p className="text-slate-400 mb-1">当前传播量级</p>
+              <p className="text-slate-700 flex items-center gap-1.5">
+                <Users className="w-4 h-4" />
+                {formatReach(event.currentReach ?? event.initialReach)}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-400 mb-1">峰值传播量级</p>
+              <p className="text-slate-700 flex items-center gap-1.5">
+                <BarChart3 className="w-4 h-4" />
+                {formatReach(event.peakReach ?? event.initialReach)}
+              </p>
+            </div>
+            {event.resolvedAt && (
+              <div>
+                <p className="text-slate-400 mb-1">解决时间</p>
+                <p className="text-slate-700 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  {formatDateTime(event.resolvedAt)}
+                  <span className="text-slate-400">
+                    (历时 {daysBetween(event.discoveredAt, event.resolvedAt)} 天)
+                  </span>
+                </p>
+              </div>
+            )}
+            <div>
+              <p className="text-slate-400 mb-1">创建人</p>
+              <p className="text-slate-700">
+                {getUserById(event.createdBy)?.name || '未知用户'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <p className="text-slate-400 mb-2 text-sm">详细描述</p>
+            <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">
+              {event.description || '暂无详细描述'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="lg:col-span-4 space-y-4">
+        <div className="card p-5">
+          <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <Users className="w-4.5 h-4.5" />
+            参与成员
+          </h3>
+          {assigneeUsers.length === 0 ? (
+            <p className="text-sm text-slate-400">暂无成员</p>
+          ) : (
+            <div className="space-y-3">
+              {assigneeUsers.map((user) => (
+                <div key={user.id} className="flex items-center gap-3">
+                  {user.avatar ? (
+                    <img src={user.avatar} alt={user.name} className="h-9 w-9 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500 text-sm font-medium text-white">
+                      {getInitials(user.name)}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">{user.name}</p>
+                    <p className="text-xs text-slate-400">
+                      {getRoleLabel(user.role)} · {user.department}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <Clock className="w-4.5 h-4.5" />
+            最近动态
+          </h3>
+          {timeline.length === 0 ? (
+            <p className="text-sm text-slate-400">暂无动态</p>
+          ) : (
+            <div className="space-y-3">
+              {[...timeline].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 5).map((tl) => (
+                <div key={tl.id} className="flex items-start gap-2 text-sm">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary-500 mt-1.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-slate-700 truncate">{tl.title}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{formatRelative(tl.timestamp)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderTasks = () => (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-slate-500">共 {tasks.length} 个任务</p>
+        <Button size="sm" leftIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => setShowTaskModal(true)}>
+          新建任务
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4" style={{ minHeight: 500 }}>
+        {TASK_STATUS_LIST.map((status) => (
+          <TaskKanbanColumn
+            key={status}
+            title={TASK_STATUS_LABELS[status]}
+            status={status}
+            tasks={tasksByStatus[status]}
+            users={users}
+            events={[event]}
+            onAddTask={() => setShowTaskModal(true)}
+            onTaskClick={(task) => updateTaskStatus(task.id, getNextStatus(task.status))}
+          />
+        ))}
+      </div>
+    </div>
+  );
+
+  const getNextStatus = (status: TaskStatus): TaskStatus => {
+    const order: TaskStatus[] = ['todo', 'in_progress', 'review', 'completed'];
+    const idx = order.indexOf(status);
+    return idx >= 0 && idx < order.length - 1 ? order[idx + 1] : status;
+  };
+
+  const renderCommunications = () => (
+    <div>
+      {docs.length === 0 ? (
+        <EmptyState
+          icon={<FileText className="w-12 h-12" />}
+          title="暂无沟通文档"
+          description="沟通文档用于记录对外声明、媒体回复、内部报告等内容"
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {docs.map((doc) => {
+            const docCfg = getDocTypeConfig(doc.type);
+            const appCfg = getApprovalStatusConfig(doc.approvalStatus);
+            const latestVer = doc.versions[doc.versions.length - 1];
+            const createdBy = getUserById(doc.createdBy);
+            return (
+              <div
+                key={doc.id}
+                onClick={() => { setSelectedDoc(doc); setShowDocEditor(doc.id); }}
+                className="card p-5 hover:shadow-md transition-all cursor-pointer border border-transparent hover:border-slate-200"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{docCfg.icon}</span>
+                    <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-xs font-medium', appCfg.bgColor, appCfg.textColor)}>
+                      {appCfg.label}
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-400">
+                    v{latestVer?.version || '0.1'}
+                  </span>
+                </div>
+                <h4 className="text-base font-semibold text-slate-800 mb-2 line-clamp-1">{doc.title}</h4>
+                <div className="flex items-center justify-between text-xs text-slate-400 mt-3 pt-3 border-t border-slate-100">
+                  <span>{createdBy?.name || '未知'}</span>
+                  <span>{formatRelative(doc.createdAt)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderSentiment = () => (
+    <div className="space-y-4">
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-serif text-lg font-semibold text-slate-800 flex items-center gap-2">
+            <Plus className={cn('w-4 h-4 transition-transform', showSentimentForm && 'rotate-45')} />
+            录入舆情数据
+          </h3>
+          <Button variant="ghost" size="sm" onClick={() => setShowSentimentForm(!showSentimentForm)}>
+            {showSentimentForm ? '收起' : '展开'}
+            {showSentimentForm ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+          </Button>
+        </div>
+        {showSentimentForm && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">提及总量</label>
+              <input type="number" min={0} value={sentimentForm.mentionCount}
+                onChange={(e) => setSentimentForm({ ...sentimentForm, mentionCount: Number(e.target.value) })}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-red-600 flex items-center gap-1">
+                <ThumbsDown className="w-3.5 h-3.5" /> 负面
+              </label>
+              <input type="number" min={0} value={sentimentForm.negativeCount}
+                onChange={(e) => setSentimentForm({ ...sentimentForm, negativeCount: Number(e.target.value) })}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-400" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-500 flex items-center gap-1">
+                <Minus className="w-3.5 h-3.5" /> 中性
+              </label>
+              <input type="number" min={0} value={sentimentForm.neutralCount}
+                onChange={(e) => setSentimentForm({ ...sentimentForm, neutralCount: Number(e.target.value) })}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-400" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-green-600 flex items-center gap-1">
+                <ThumbsUp className="w-3.5 h-3.5" /> 正面
+              </label>
+              <input type="number" min={0} value={sentimentForm.positiveCount}
+                onChange={(e) => setSentimentForm({ ...sentimentForm, positiveCount: Number(e.target.value) })}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-400" />
+            </div>
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">备注</label>
+              <input type="text" value={sentimentForm.note}
+                onChange={(e) => setSentimentForm({ ...sentimentForm, note: e.target.value })}
+                placeholder="可选：记录舆情趋势说明"
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+            </div>
+            <div className="flex items-end">
+              <Button onClick={handleSubmitSentiment} className="w-full">提交记录</Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-5">
+        <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4">舆情趋势</h3>
+        {sentimentChartData.length === 0 ? (
+          <EmptyState title="暂无舆情数据" description="请先录入舆情数据以查看趋势" />
+        ) : (
+          <div className="h-[340px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={sentimentChartData}>
+                <defs>
+                  <linearGradient id="colorNeg" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={SENTIMENT_COLORS.negative} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={SENTIMENT_COLORS.negative} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Area type="monotone" dataKey="提及量" stroke="#3b82f6" strokeWidth={2} fill="url(#colorNeg)" />
+                <Area type="monotone" dataKey="负面" stroke={SENTIMENT_COLORS.negative} strokeWidth={2} fill="none" />
+                <Area type="monotone" dataKey="正面" stroke={SENTIMENT_COLORS.positive} strokeWidth={2} fill="none" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="card p-5">
+          <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4">最新情感分布</h3>
+          {sentimentPieData.length === 0 ? (
+            <EmptyState title="暂无数据" />
+          ) : (
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={sentimentPieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={3} dataKey="value">
+                    {sentimentPieData.map((_, idx) => (
+                      <Cell key={idx} fill={Object.values(SENTIMENT_COLORS)[idx]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4">各平台分布（示例）</h3>
+          <div className="h-[280px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={[
+                { platform: '微博', count: Math.floor(Math.random() * 2000 + 500) },
+                { platform: '微信', count: Math.floor(Math.random() * 1500 + 300) },
+                { platform: '抖音', count: Math.floor(Math.random() * 1200 + 200) },
+                { platform: '小红书', count: Math.floor(Math.random() * 800 + 100) },
+                { platform: '知乎', count: Math.floor(Math.random() * 600 + 50) },
+                { platform: '其他', count: Math.floor(Math.random() * 400) },
+              ]}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="platform" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Bar dataKey="count" name="提及量" fill="#8b5cf6" radius={[6, 6, 0, 0]} barSize={32} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderTimeline = () => (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-slate-500">共 {timeline.length} 条时间节点</p>
+        <Button size="sm" leftIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => setShowTimelineModal(true)}>
+          添加时间节点
+        </Button>
+      </div>
+      <EventTimeline events={timeline} />
+    </div>
+  );
+
+  const renderReview = () => {
+    if (!isResolved && !review) {
+      return (
+        <div className="card p-10 text-center">
+          <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-5 text-slate-400">
+            <AlertCircle className="w-10 h-10" />
+          </div>
+          <h3 className="font-serif text-xl font-semibold text-slate-700 mb-2">事件未平息，暂不可填写复盘</h3>
+          <p className="text-sm text-slate-500 max-w-md mx-auto">
+            请先将事件状态流转至"已解决"后再进行复盘填写。
+            当前状态：<EventStatusBadge status={event.status} />
+          </p>
+        </div>
+      );
+    }
+
+    if (review) {
+      const radarData = [
+        { subject: '响应速度', value: review.responseTime },
+        { subject: '沟通效果', value: review.communication },
+        { subject: '执行能力', value: review.execution },
+        { subject: '整体评分', value: review.overallRating },
+      ];
+      return (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div className="lg:col-span-7 space-y-4">
+            <div className="card p-5">
+              <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-green-500" />
+                亮点与优点
+              </h3>
+              <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-sm">{review.strengths}</p>
+            </div>
+            <div className="card p-5">
+              <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <XCircle className="w-5 h-5 text-red-500" />
+                不足与问题
+              </h3>
+              <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-sm">{review.weaknesses}</p>
+            </div>
+            <div className="card p-5">
+              <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <Radar className="w-5 h-5 text-purple-500" />
+                根本原因
+              </h3>
+              <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-sm">{review.rootCause}</p>
+            </div>
+            <div className="card p-5">
+              <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <Lightbulb className="w-5 h-5 text-amber-500" />
+                改进建议
+              </h3>
+              <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-sm">{review.suggestions}</p>
+            </div>
+            {review.lessons.length > 0 && (
+              <div className="card p-5">
+                <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4">经验教训</h3>
+                <div className="space-y-3">
+                  {review.lessons.map((lesson, idx) => (
+                    <div key={idx} className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-100">
+                      <Star className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                      <p className="text-sm text-slate-700">{lesson}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="lg:col-span-5 space-y-4">
+            <div className="card p-5">
+              <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4">各维度评分</h3>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart data={radarData}>
+                    <PolarGrid stroke="#e2e8f0" />
+                    <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <PolarRadiusAxis domain={[0, 5]} tick={{ fontSize: 10 }} angle={90} />
+                    <RadarChartComp name="评分" dataKey="value" stroke="#6366f1" fill="#6366f1" fillOpacity={0.4} strokeWidth={2} />
+                    <Tooltip />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="grid grid-cols-4 gap-2 mt-3 text-center text-xs">
+                {radarData.map((d) => (
+                  <div key={d.subject} className="p-2 rounded-lg bg-slate-50">
+                    <div className="text-slate-400 mb-0.5">{d.subject}</div>
+                    <div className="font-bold text-slate-800 text-lg">{d.value}<span className="text-xs text-slate-400">/5</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="card p-5">
+              <p className="text-xs text-slate-400 mb-1">复盘完成人</p>
+              <p className="text-sm text-slate-700 mb-3">
+                {getUserById(review.completedBy)?.name || '未知'}
+              </p>
+              <p className="text-xs text-slate-400 mb-1">复盘完成时间</p>
+              <p className="text-sm text-slate-700">{formatDateTime(review.completedAt)}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="card p-6 space-y-5">
+        <h3 className="font-serif text-lg font-semibold text-slate-800">填写事件复盘报告</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700 flex items-center gap-1">
+              <CheckCircle2 className="w-4 h-4 text-green-500" /> 亮点与优点
+            </label>
+            <textarea rows={5} value={reviewForm.strengths}
+              onChange={(e) => setReviewForm({ ...reviewForm, strengths: e.target.value })}
+              placeholder="本次事件应对中的做得好的地方..."
+              className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-400" />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700 flex items-center gap-1">
+              <XCircle className="w-4 h-4 text-red-500" /> 不足与问题
+            </label>
+            <textarea rows={5} value={reviewForm.weaknesses}
+              onChange={(e) => setReviewForm({ ...reviewForm, weaknesses: e.target.value })}
+              placeholder="本次事件暴露的问题和不足之处..."
+              className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-400" />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700 flex items-center gap-1">
+              <Radar className="w-4 h-4 text-purple-500" /> 根本原因分析
+            </label>
+            <textarea rows={5} value={reviewForm.rootCause}
+              onChange={(e) => setReviewForm({ ...reviewForm, rootCause: e.target.value })}
+              placeholder="导致事件发生的深层原因..."
+              className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400" />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700 flex items-center gap-1">
+              <Lightbulb className="w-4 h-4 text-amber-500" /> 改进建议
+            </label>
+            <textarea rows={5} value={reviewForm.suggestions}
+              onChange={(e) => setReviewForm({ ...reviewForm, suggestions: e.target.value })}
+              placeholder="后续可以改进的具体措施和建议..."
+              className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400" />
+          </div>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">经验教训（每行一条）</label>
+          <textarea rows={4} value={reviewForm.lessonsText}
+            onChange={(e) => setReviewForm({ ...reviewForm, lessonsText: e.target.value })}
+            placeholder={'总结的经验教训，每行一条...\n例如：\n宣传内容必须走合规审核\n主动认错优于被动辩解'}
+            className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {(['responseTime', 'communication', 'execution', 'overallRating'] as const).map((key) => (
+            <div key={key}>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                {key === 'responseTime' && '响应速度'}
+                {key === 'communication' && '沟通效果'}
+                {key === 'execution' && '执行能力'}
+                {key === 'overallRating' && '整体评分'}
+              </label>
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((v) => (
+                  <button key={v} type="button" onClick={() => setReviewForm({ ...reviewForm, [key]: v })}
+                    className={cn('flex-1 h-9 rounded-lg text-sm font-medium transition-all',
+                      reviewForm[key] >= v ? 'bg-amber-400 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200')}>
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button onClick={handleSubmitReview}>提交复盘报告</Button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <PageContainer
+      title={
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate('/events')}
+            className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors">
+            <ArrowLeft className="w-4.5 h-4.5" />
+          </button>
+          <span>{event.title}</span>
+        </div>
+      }
+      actions={
+        <div className="flex items-center gap-2">
+          {event.status !== 'archived' && (
+            <Button variant="secondary" size="sm" leftIcon={<Archive className="w-4 h-4" />} onClick={handleArchive}>
+              归档
+            </Button>
+          )}
+        </div>
+      }
+    >
+      <div className="space-y-5">
+        <div className="card p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <EventStatusBadge status={event.status} />
+              <SeverityIndicator level={event.severity} showLabel />
+              {event.tags.length > 0 && event.tags.map((tag) => (
+                <span key={tag} className="inline-flex items-center rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-600">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5 text-sm">
+              {EVENT_STATUS_STEPS.slice(0, -1).map((step) => {
+                const stepIdx = EVENT_STATUS_STEPS.findIndex((s) => s.key === step.key);
+                const active = stepIdx <= currentStepIndex;
+                const isCurrent = stepIdx === currentStepIndex;
+                const cfg = getEventStatusConfig(step.key);
+                return (
+                  <button
+                    key={step.key}
+                    onClick={() => handleStatusChange(step.key)}
+                    disabled={event.status === 'archived'}
+                    className={cn(
+                      'px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed',
+                      isCurrent ? cn(cfg.bgColor, cfg.textColor, 'ring-2 ring-offset-1 ring-slate-200') :
+                      active ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' :
+                      'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                    )}
+                  >
+                    {step.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <StatusStepper steps={EVENT_STATUS_STEPS.map((s) => ({ key: s.key, label: s.label }))} currentStep={currentStepIndex} />
+        </div>
+
+        <div className="card p-0 overflow-hidden">
+          <div className="flex gap-1 px-2 border-b border-slate-100 overflow-x-auto">
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={cn(
+                    'flex items-center gap-2 px-4 py-3.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
+                    active ? 'border-primary-500 text-primary-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-200'
+                  )}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="p-5">
+            {activeTab === 'overview' && renderOverview()}
+            {activeTab === 'tasks' && renderTasks()}
+            {activeTab === 'communications' && renderCommunications()}
+            {activeTab === 'sentiment' && renderSentiment()}
+            {activeTab === 'timeline' && renderTimeline()}
+            {activeTab === 'review' && renderReview()}
+          </div>
+        </div>
+      </div>
+
+      <Modal open={showTaskModal} onClose={() => setShowTaskModal(false)} title="新建任务" maxWidth="lg">
+        <TaskForm onSubmit={handleCreateTask} onCancel={() => setShowTaskModal(false)} />
+      </Modal>
+
+      <Modal open={showTimelineModal} onClose={() => setShowTimelineModal(false)} title="添加时间节点" maxWidth="lg">
+        <div className="space-y-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">节点类型</label>
+            <select value={timelineForm.type}
+              onChange={(e) => setTimelineForm({ ...timelineForm, type: e.target.value as TimelineEvent['type'] })}
+              className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+              <option value="note">备注</option>
+              <option value="status_change">状态变更</option>
+              <option value="task">任务</option>
+              <option value="communication">沟通记录</option>
+              <option value="sentiment_update">舆情更新</option>
+              <option value="external">外部事件</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">标题 <span className="text-red-500">*</span></label>
+            <input type="text" value={timelineForm.title}
+              onChange={(e) => setTimelineForm({ ...timelineForm, title: e.target.value })}
+              placeholder="简洁描述该时间节点"
+              className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">详细说明</label>
+            <textarea rows={4} value={timelineForm.description}
+              onChange={(e) => setTimelineForm({ ...timelineForm, description: e.target.value })}
+              placeholder="补充说明..."
+              className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">时间</label>
+            <input type="datetime-local" value={timelineForm.timestamp}
+              onChange={(e) => setTimelineForm({ ...timelineForm, timestamp: e.target.value })}
+              className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+          </div>
+          <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+            <Button variant="ghost" onClick={() => setShowTimelineModal(false)}>取消</Button>
+            <Button onClick={handleSubmitTimeline}>确认添加</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!showDocEditor} onClose={() => { setShowDocEditor(null); setSelectedDoc(null); }} title={selectedDoc?.title || '文档详情'} maxWidth="xl">
+        {selectedDoc && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-xs font-medium', getDocTypeConfig(selectedDoc.type).icon && '')}>
+                {getDocTypeConfig(selectedDoc.type).icon} {getDocTypeConfig(selectedDoc.type).label}
+              </span>
+              <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium',
+                getApprovalStatusConfig(selectedDoc.approvalStatus).bgColor,
+                getApprovalStatusConfig(selectedDoc.approvalStatus).textColor)}>
+                {getApprovalStatusConfig(selectedDoc.approvalStatus).label}
+              </span>
+              <span className="text-xs text-slate-400">
+                当前版本：{selectedDoc.versions[selectedDoc.versions.length - 1]?.version || '0.1'}
+              </span>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 min-h-[300px]">
+              {selectedDoc.versions[selectedDoc.versions.length - 1]?.content ? (
+                <pre className="whitespace-pre-wrap text-sm text-slate-700 font-sans leading-relaxed">
+                  {selectedDoc.versions[selectedDoc.versions.length - 1].content}
+                </pre>
+              ) : (
+                <p className="text-slate-400 text-sm">文档内容为空</p>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-100">
+              <span>创建人：{getUserById(selectedDoc.createdBy)?.name || '未知'}</span>
+              <span>创建时间：{formatDateTime(selectedDoc.createdAt)}</span>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </PageContainer>
+  );
+}

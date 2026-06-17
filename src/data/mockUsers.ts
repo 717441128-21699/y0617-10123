@@ -1,0 +1,68 @@
+import { User } from '../types';
+
+export const mockUsers: User[] = [
+  {
+    id: 'u001',
+    name: '张明',
+    role: 'admin',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhangming',
+    email: 'zhangming@company.com',
+    department: '公共关系部',
+  },
+  {
+    id: 'u002',
+    name: '李华',
+    role: 'pr',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lihua',
+    email: 'lihua@company.com',
+    department: '公共关系部',
+  },
+  {
+    id: 'u003',
+    name: '王芳',
+    role: 'pr',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wangfang',
+    email: 'wangfang@company.com',
+    department: '公共关系部',
+  },
+  {
+    id: 'u004',
+    name: '陈伟',
+    role: 'legal',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=chenwei',
+    email: 'chenwei@company.com',
+    department: '法务部',
+  },
+  {
+    id: 'u005',
+    name: '刘静',
+    role: 'cs',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=liujing',
+    email: 'liujing@company.com',
+    department: '客户服务部',
+  },
+  {
+    id: 'u006',
+    name: '赵强',
+    role: 'cs',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhaoqiang',
+    email: 'zhaoqiang@company.com',
+    department: '客户服务部',
+  },
+  {
+    id: 'u007',
+    name: '孙丽',
+    role: 'viewer',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sunli',
+    email: 'sunli@company.com',
+    department: '市场部',
+  },
+  {
+    id: 'u008',
+    name: '周斌',
+    role: 'management',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhoubin',
+    email: 'zhoubin@company.com',
+    department: '管理层',
+  },
+];

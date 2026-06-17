@@ -1,0 +1,110 @@
+/** @type {import('tailwindcss').Config} */
+
+export default {
+  darkMode: "class",
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: {
+    container: {
+      center: true,
+    },
+    extend: {
+      colors: {
+        primary: {
+          50: "#F0F5FB",
+          100: "#DCE7F3",
+          200: "#B9CEE7",
+          300: "#8BADD8",
+          400: "#5786C4",
+          500: "#2E61AA",
+          600: "#0F3460",
+          700: "#0C2A4F",
+          800: "#092040",
+          900: "#061730",
+        },
+        danger: {
+          50: "#FDECEE",
+          100: "#FAD5DB",
+          200: "#F5ABB7",
+          300: "#EF8193",
+          400: "#EA576F",
+          500: "#E94560",
+          600: "#D6334E",
+          700: "#B32840",
+          800: "#8F1E32",
+          900: "#6C1424",
+        },
+        warning: {
+          50: "#FFF5EC",
+          100: "#FFE8D3",
+          200: "#FFD1A7",
+          300: "#FFBA7B",
+          400: "#FFA34F",
+          500: "#FF9F43",
+          600: "#E88428",
+          700: "#C06B1F",
+          800: "#985216",
+          900: "#70390D",
+        },
+        success: {
+          50: "#EDFBF5",
+          100: "#D5F6E6",
+          200: "#AAEDCD",
+          300: "#7FE4B4",
+          400: "#55DB9B",
+          500: "#10B981",
+          600: "#0E9A6D",
+          700: "#0B7A57",
+          800: "#085B41",
+          900: "#063C2C",
+        },
+        info: {
+          50: "#E8FAFD",
+          100: "#D0F5FA",
+          200: "#A1EBF5",
+          300: "#72E1F0",
+          400: "#43D7EB",
+          500: "#06B6D4",
+          600: "#0596B0",
+          700: "#04768C",
+          800: "#035668",
+          900: "#023644",
+        },
+      },
+      fontFamily: {
+        serif: ['"Noto Serif SC"', "ui-serif", "Georgia", "serif"],
+        sans: ['"Noto Sans SC"', "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ['"JetBrains Mono"', "ui-monospace", "monospace"],
+      },
+      boxShadow: {
+        card: "0 1px 3px rgba(15, 52, 96, 0.08), 0 1px 2px rgba(15, 52, 96, 0.06)",
+        "card-hover": "0 10px 25px rgba(15, 52, 96, 0.1), 0 4px 10px rgba(15, 52, 96, 0.06)",
+        nav: "2px 0 8px rgba(15, 52, 96, 0.05)",
+      },
+      animation: {
+        "pulse-danger": "pulse-danger 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        "fade-in": "fade-in 0.5s ease-out",
+        "slide-up": "slide-up 0.4s ease-out",
+        "slide-in-right": "slide-in-right 0.3s ease-out",
+      },
+      keyframes: {
+        "pulse-danger": {
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(233, 69, 96, 0.4)" },
+          "50%": { boxShadow: "0 0 0 8px rgba(233, 69, 96, 0)" },
+        },
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        "slide-up": {
+          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "slide-in-right": {
+          "0%": { opacity: "0", transform: "translateX(20px)" },
+          "100%": { opacity: "1", transform: "translateX(0)" },
+        },
+      },
+    },
+  },
+  plugins: [],
+};
