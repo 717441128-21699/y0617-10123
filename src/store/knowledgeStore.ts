@@ -98,38 +98,33 @@ export const useKnowledgeStore = create<KnowledgeStore>((set, get) => ({
     const storedTimeline = storage.get<TimelineEvent[]>(STORAGE_KEYS.TIMELINE_EVENTS, []);
     const storedReview = storage.get<ReviewSummary[]>(STORAGE_KEYS.REVIEW_SUMMARIES, []);
 
-    if (storedKnowledge.length === 0) {
-      storage.set(STORAGE_KEYS.KNOWLEDGE, mockKnowledge);
-      set({ items: mockKnowledge });
-    } else {
-      set({ items: storedKnowledge });
-    }
+    const mergeById = <T extends { id: string }>(stored: T[], mock: T[]): T[] => {
+      if (stored.length === 0) return mock;
+      const existingIds = new Set(stored.map((x) => x.id));
+      const toAdd = mock.filter((m) => !existingIds.has(m.id));
+      return [...stored, ...toAdd];
+    };
 
-    if (storedCases.length === 0) {
-      storage.set(STORAGE_KEYS.KNOWLEDGE_CASES, mockKnowledgeItems);
-      set({ cases: [...mockKnowledgeItems] });
-    } else {
-      set({ cases: storedCases });
+    const mergedKnowledge = mergeById(storedKnowledge, mockKnowledge);
+    if (mergedKnowledge.length !== storedKnowledge.length) {
+      storage.set(STORAGE_KEYS.KNOWLEDGE, mergedKnowledge);
     }
+    set({ items: mergedKnowledge });
 
-    if (storedSentiment.length === 0) {
-      storage.set(STORAGE_KEYS.SENTIMENT_RECORDS, mockSentiment);
-      set({ sentimentRecords: mockSentiment });
-    } else {
-      set({ sentimentRecords: storedSentiment });
+    const mergedCases = mergeById(storedCases, mockKnowledgeItems);
+    if (mergedCases.length !== storedCases.length) {
+      storage.set(STORAGE_KEYS.KNOWLEDGE_CASES, mergedCases);
     }
+    set({ cases: mergedCases });
 
-    if (storedTimeline.length === 0) {
-      set({ timelineEvents: [] });
-    } else {
-      set({ timelineEvents: storedTimeline });
+    const mergedSentiment = mergeById(storedSentiment, mockSentiment);
+    if (mergedSentiment.length !== storedSentiment.length) {
+      storage.set(STORAGE_KEYS.SENTIMENT_RECORDS, mergedSentiment);
     }
+    set({ sentimentRecords: mergedSentiment });
 
-    if (storedReview.length === 0) {
-      set({ reviewSummaries: [] });
-    } else {
-      set({ reviewSummaries: storedReview });
-    }
+    set({ timelineEvents: storedTimeline });
+    set({ reviewSummaries: storedReview });
   },
 
   addSentimentRecord: (record: Partial<SentimentRecord>) => {

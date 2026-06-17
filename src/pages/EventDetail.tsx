@@ -209,6 +209,95 @@ export default function EventDetail() {
       topPlatform: topPlatformArr[0] || null,
     };
   }, [filteredSentiments]);
+
+  interface SentimentAlert {
+    id: string;
+    type: 'mention_spike' | 'negative_spike' | 'negative_high';
+    title: string;
+    description: string;
+    severity: 'high' | 'medium' | 'low';
+    recordId: string;
+    recordedAt: string;
+    mentionCount: number;
+    negativeCount: number;
+    negativeRatio: number;
+  }
+
+  const sentimentAlerts = useMemo<SentimentAlert[]>(() => {
+    const alerts: SentimentAlert[] = [];
+    if (filteredSentiments.length < 2) return alerts;
+
+    const sorted = [...filteredSentiments].sort(
+      (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()
+    );
+
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const curr = sorted[i];
+      const mentionRatio = prev.mentionCount > 0 ? curr.mentionCount / prev.mentionCount : 1;
+      const mentionIncrease = curr.mentionCount - prev.mentionCount;
+      const currNegRatio = curr.mentionCount > 0 ? curr.negativeCount / curr.mentionCount : 0;
+      const prevNegRatio = prev.mentionCount > 0 ? prev.negativeCount / prev.mentionCount : 0;
+      const negIncrease = currNegRatio - prevNegRatio;
+
+      if (mentionRatio >= 2 && mentionIncrease >= 5000) {
+        alerts.push({
+          id: `alert_spike_${curr.id}`,
+          type: 'mention_spike',
+          title: '提及量突发激增',
+          description: `提及量从 ${formatReach(prev.mentionCount)} 飙升至 ${formatReach(curr.mentionCount)}，增长 ${((mentionRatio - 1) * 100).toFixed(0)}%，传播风险明显升高。`,
+          severity: mentionRatio >= 3 ? 'high' : 'medium',
+          recordId: curr.id,
+          recordedAt: curr.recordedAt,
+          mentionCount: curr.mentionCount,
+          negativeCount: curr.negativeCount,
+          negativeRatio: currNegRatio,
+        });
+      }
+
+      if (negIncrease >= 0.15 && currNegRatio >= 0.5) {
+        alerts.push({
+          id: `alert_neg_${curr.id}`,
+          type: 'negative_spike',
+          title: '负面占比大幅上升',
+          description: `负面占比从 ${(prevNegRatio * 100).toFixed(0)}% 升至 ${(currNegRatio * 100).toFixed(0)}%，上升 ${(negIncrease * 100).toFixed(0)} 个百分点，需警惕舆论恶化。`,
+          severity: currNegRatio >= 0.7 ? 'high' : 'medium',
+          recordId: curr.id,
+          recordedAt: curr.recordedAt,
+          mentionCount: curr.mentionCount,
+          negativeCount: curr.negativeCount,
+          negativeRatio: currNegRatio,
+        });
+      }
+
+      if (currNegRatio >= 0.7 && prevNegRatio < 0.7) {
+        alerts.push({
+          id: `alert_neghigh_${curr.id}`,
+          type: 'negative_high',
+          title: '负面占比超警戒线',
+          description: `负面占比已达 ${(currNegRatio * 100).toFixed(0)}%，超过 70% 警戒线，建议立即启动针对性回应。`,
+          severity: 'high',
+          recordId: curr.id,
+          recordedAt: curr.recordedAt,
+          mentionCount: curr.mentionCount,
+          negativeCount: curr.negativeCount,
+          negativeRatio: currNegRatio,
+        });
+      }
+    }
+    return alerts;
+  }, [filteredSentiments]);
+
+  const handleAddAlertToTimeline = (alert: SentimentAlert) => {
+    addTimelineEvent({
+      eventId: id,
+      type: 'sentiment_update',
+      title: `舆情预警：${alert.title}`,
+      description: `${formatDateTime(alert.recordedAt)} 记录 · ${alert.description}`,
+      relatedId: alert.recordId,
+      createdBy: currentUserId,
+    });
+  };
   const timeline = getTimelineByEventId(id);
   const review = getReviewByEventId(id);
 
@@ -793,6 +882,80 @@ export default function EventDetail() {
         </div>
       </div>
 
+      {sentimentAlerts.length > 0 && (
+        <div className="card p-5 border-l-4 border-l-red-500">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-serif text-lg font-semibold text-slate-800 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              舆情预警
+              <span className="ml-1 inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-red-500 text-white text-xs font-bold">
+                {sentimentAlerts.length}
+              </span>
+            </h3>
+            <p className="text-xs text-slate-400">基于最近舆情数据自动检测</p>
+          </div>
+          <div className="space-y-3">
+            {sentimentAlerts.map((alert) => {
+              const sevConfig = alert.severity === 'high'
+                ? { border: 'border-red-200', bg: 'bg-red-50/50', badge: 'bg-red-500', label: '高危' }
+                : alert.severity === 'medium'
+                  ? { border: 'border-orange-200', bg: 'bg-orange-50/50', badge: 'bg-orange-500', label: '中危' }
+                  : { border: 'border-amber-200', bg: 'bg-amber-50/50', badge: 'bg-amber-500', label: '低危' };
+              return (
+                <div
+                  key={alert.id}
+                  className={cn(
+                    'rounded-xl border p-4 transition-all',
+                    sevConfig.border, sevConfig.bg
+                  )}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      <div className={cn(
+                        'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-white',
+                        sevConfig.badge
+                      )}>
+                        {alert.type === 'mention_spike' && <Flame className="w-4 h-4" />}
+                        {alert.type === 'negative_spike' && <ThumbsDown className="w-4 h-4" />}
+                        {alert.type === 'negative_high' && <AlertCircle className="w-4 h-4" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <h4 className="text-sm font-semibold text-slate-800">{alert.title}</h4>
+                          <span className={cn(
+                            'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium text-white',
+                            sevConfig.badge
+                          )}>
+                            {sevConfig.label}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {formatDateTime(alert.recordedAt)} 记录
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 leading-relaxed">{alert.description}</p>
+                        <div className="flex items-center gap-4 mt-2 text-[11px] text-slate-500">
+                          <span>提及量：<b className="text-slate-700">{formatReach(alert.mentionCount)}</b></span>
+                          <span>负面占比：<b className="text-slate-700">{(alert.negativeRatio * 100).toFixed(0)}%</b></span>
+                          <span>负面量：<b className="text-slate-700">{formatReach(alert.negativeCount)}</b></span>
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      leftIcon={<Clock className="w-3.5 h-3.5" />}
+                      onClick={() => handleAddAlertToTimeline(alert)}
+                    >
+                      加入时间线
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-serif text-lg font-semibold text-slate-800 flex items-center gap-2">
@@ -904,24 +1067,102 @@ export default function EventDetail() {
     };
 
     const exportTimeline = () => {
-      const title = `事件复盘记录 - ${event?.title || '未命名事件'}\n`;
-      const meta = `导出时间：${formatDateTime(new Date().toISOString())}\n\n`;
-      const content = sortedTimeline
-        .map((t, idx) => {
-          return [
-            `【${idx + 1}】${formatDateTime(t.timestamp)} · ${typeLabel[t.type]}`,
-            `标题：${t.title}`,
-            t.description ? `说明：${t.description}` : null,
-            `操作人：${getUserById(t.createdBy)?.name || t.createdBy}`,
-          ].filter(Boolean).join('\n');
-        })
-        .join('\n\n');
-      const fullText = `${title}${meta}${content}`;
+      if (!event) return;
+
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+      const safeEventName = event.title.replace(/[\\/:*?"<>|]/g, '_');
+      const safeFileName = `${safeEventName}_复盘过程记录_${dateStr}.txt`;
+
+      const typeLabel: Record<TimelineEvent['type'], string> = {
+        status_change: '状态变更',
+        task: '任务',
+        communication: '沟通记录',
+        sentiment_update: '舆情更新',
+        external: '外部事件',
+        note: '备注',
+      };
+      const severityCfg = getSeverityConfig(event.severity);
+      const statusCfg = getEventStatusConfig(event.status);
+
+      const typeStats: Record<string, number> = {};
+      sortedTimeline.forEach((t) => {
+        const lbl = typeLabel[t.type];
+        typeStats[lbl] = (typeStats[lbl] || 0) + 1;
+      });
+
+      const assignees = event.assignees
+        .map((uid) => getUserById(uid)?.name || uid)
+        .filter(Boolean)
+        .join('、');
+
+      const lines: string[] = [];
+      lines.push('='.repeat(60));
+      lines.push('       危 机 事 件 复 盘 过 程 记 录');
+      lines.push('='.repeat(60));
+      lines.push('');
+      lines.push('【一、事件基本信息】');
+      lines.push(`  事件标题：${event.title}`);
+      lines.push(`  事件分类：${event.category}`);
+      lines.push(`  严重程度：${severityCfg.label}（${event.severity}级）`);
+      lines.push(`  当前状态：${statusCfg.label}`);
+      lines.push(`  事件起因：${event.cause}`);
+      lines.push(`  发现时间：${formatDateTime(event.discoveredAt)}`);
+      if (event.resolvedAt) lines.push(`  解决时间：${formatDateTime(event.resolvedAt)}`);
+      if (event.archivedAt) lines.push(`  归档时间：${formatDateTime(event.archivedAt)}`);
+      if (event.peakReach) lines.push(`  峰值传播量：${new Intl.NumberFormat('zh-CN').format(event.peakReach)}`);
+      lines.push(`  涉及平台：${event.platforms.join('、')}`);
+      lines.push(`  参与人员：${assignees || '无'}`);
+      lines.push(`  事件标签：${event.tags.join('、')}`);
+      lines.push('');
+      lines.push('【二、导出说明】');
+      lines.push(`  导出时间：${formatDateTime(now.toISOString())}`);
+      lines.push(`  筛选类型：${timelineFilter === 'all' ? '全部类型' : typeLabel[timelineFilter]}`);
+      lines.push(`  节点总数：${sortedTimeline.length} 条`);
+      if (Object.keys(typeStats).length > 0) {
+        lines.push(`  类型分布：${Object.entries(typeStats).map(([k, v]) => `${k} ${v}条`).join('，')}`);
+      }
+      lines.push('');
+
+      if (event.statusHistory && event.statusHistory.length > 0) {
+        lines.push('【三、状态流转记录】');
+        event.statusHistory.forEach((h, i) => {
+          const sCfg = getEventStatusConfig(h.status);
+          lines.push(`  ${i + 1}. ${formatDateTime(h.changedAt)} → ${sCfg.label}${h.note ? `（${h.note}）` : ''}`);
+        });
+        lines.push('');
+      }
+
+      lines.push('【四、关键时间节点】');
+      lines.push('-'.repeat(60));
+      if (sortedTimeline.length === 0) {
+        lines.push('  暂无时间线记录');
+      } else {
+        sortedTimeline.forEach((t, idx) => {
+          lines.push('');
+          lines.push(`  【${String(idx + 1).padStart(2, '0')}】 ${formatDateTime(t.timestamp)} · [${typeLabel[t.type]}]`);
+          lines.push(`       标题：${t.title}`);
+          if (t.description) {
+            lines.push(`       说明：${t.description}`);
+          }
+          lines.push(`       操作人：${getUserById(t.createdBy)?.name || t.createdBy}`);
+          if (t.relatedId) {
+            lines.push(`       关联ID：${t.relatedId}`);
+          }
+        });
+      }
+      lines.push('');
+      lines.push('='.repeat(60));
+      lines.push(`  报告结束 · 导出自危机事件管理平台`);
+      lines.push('='.repeat(60));
+
+      const fullText = lines.join('\n');
       const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${event?.title || '复盘记录'}_时间线导出.txt`;
+      link.download = safeFileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

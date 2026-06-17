@@ -103,7 +103,15 @@ export const useEventStore = create<EventStore>((set, get) => ({
       storage.set(STORAGE_KEYS.EVENTS, mockEvents);
       set({ events: mockEvents });
     } else {
-      set({ events: stored });
+      const existingIds = new Set(stored.map((e) => e.id));
+      const toAdd = mockEvents.filter((m) => !existingIds.has(m.id));
+      if (toAdd.length > 0) {
+        const merged = [...stored, ...toAdd];
+        storage.set(STORAGE_KEYS.EVENTS, merged);
+        set({ events: merged });
+      } else {
+        set({ events: stored });
+      }
     }
   },
 

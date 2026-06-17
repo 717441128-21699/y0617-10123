@@ -16,6 +16,9 @@ import {
   ExternalLink,
   GripVertical,
   Flag,
+  CheckSquare,
+  MessageSquare,
+  TrendingUp,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -32,27 +35,33 @@ import SeverityIndicator from '@/components/events/SeverityIndicator';
 import { useUserStore } from '@/store/userStore';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { useEventStore } from '@/store/eventStore';
+import { useTaskStore } from '@/store/taskStore';
+import { useDocStore } from '@/store/docStore';
 import { formatDate, daysBetween } from '@/utils/date';
-import { getSeverityConfig, getEventStatusConfig as getStatusConfig } from '@/utils/status';
+import { getSeverityConfig, getEventStatusConfig as getStatusConfig, getPlatformLabel } from '@/utils/status';
 import { getInitials } from '@/utils/format';
 import { cn } from '@/lib/utils';
-import type { KnowledgeBaseCase } from '@/types';
+import type { KnowledgeBaseCase, Task } from '@/types';
 
 export default function KnowledgeDetail() {
   const navigate = useNavigate();
   const { id = '' } = useParams<{ id: string }>();
   const { initUsers, getUserById } = useUserStore();
-  const { initAll, getCaseById, cases, getTimelineByEventId } = useKnowledgeStore();
+  const { initAll, getCaseById, cases, getTimelineByEventId, getSentimentByEventId } = useKnowledgeStore();
   const { initEvents, getEventById } = useEventStore();
+  const { initTasks, getTasksByEventId } = useTaskStore();
+  const { initDocs, getDocsByEventId } = useDocStore();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     initUsers();
     initAll();
     initEvents();
+    initTasks();
+    initDocs();
     const timer = setTimeout(() => setLoading(false), 300);
     return () => clearTimeout(timer);
-  }, [initUsers, initAll, initEvents]);
+  }, [initUsers, initAll, initEvents, initTasks, initDocs]);
 
   const caseItem = useMemo(
     () => getCaseById(id),
@@ -71,6 +80,38 @@ export default function KnowledgeDetail() {
     if (!linkedEvent) return [];
     return getTimelineByEventId(linkedEvent.id);
   }, [linkedEvent, getTimelineByEventId]);
+
+  const eventTasks = useMemo<Task[]>(() => {
+    if (!linkedEvent) return [];
+    return getTasksByEventId(linkedEvent.id);
+  }, [linkedEvent, getTasksByEventId]);
+
+  const eventDocs = useMemo(() => {
+    if (!linkedEvent) return [];
+    return getDocsByEventId(linkedEvent.id);
+  }, [linkedEvent, getDocsByEventId]);
+
+  const eventSentiments = useMemo(() => {
+    if (!linkedEvent) return [];
+    return getSentimentByEventId(linkedEvent.id);
+  }, [linkedEvent, getSentimentByEventId]);
+
+  const taskStats = useMemo(() => {
+    const total = eventTasks.length;
+    const completed = eventTasks.filter((t) => t.status === 'completed').length;
+    const cancelled = eventTasks.filter((t) => t.status === 'cancelled').length;
+    const inProgress = total - completed - cancelled;
+    return { total, completed, inProgress, cancelled, rate: total > 0 ? Math.round((completed / total) * 100) : 0 };
+  }, [eventTasks]);
+
+  const sentimentPeak = useMemo(() => {
+    if (eventSentiments.length === 0) return null;
+    let peak = eventSentiments[0];
+    eventSentiments.forEach((s) => {
+      if (s.mentionCount > peak.mentionCount) peak = s;
+    });
+    return peak;
+  }, [eventSentiments]);
 
   const similarCases = useMemo(() => {
     if (!caseItem) return [];
@@ -346,6 +387,183 @@ export default function KnowledgeDetail() {
                 {caseItem.summary}
               </p>
             </div>
+
+            {eventTasks.length > 0 && (
+              <div className="card p-5">
+                <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                  <CheckSquare className="w-4.5 h-4.5 text-green-500" />
+                  关联任务完成情况
+                  <span className="text-xs font-normal text-slate-400 ml-1">（{taskStats.rate}% 完成率）</span>
+                </h3>
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-green-400 to-green-600 rounded-full transition-all"
+                      style={{ width: `${taskStats.rate}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> 完成 {taskStats.completed}</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> 进行中 {taskStats.inProgress}</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-300" /> 总 {taskStats.total}</span>
+                  </div>
+                </div>
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {eventTasks.slice(0, 8).map((t) => (
+                    <div
+                      key={t.id}
+                      className={cn(
+                        'flex items-start justify-between gap-2 p-3 rounded-lg border transition-all',
+                        t.status === 'completed'
+                          ? 'bg-green-50/50 border-green-100'
+                          : t.status === 'cancelled'
+                            ? 'bg-slate-50 border-slate-100 opacity-70'
+                            : 'bg-white border-slate-100'
+                      )}
+                    >
+                      <div className="flex items-start gap-2 min-w-0">
+                        <div className={cn(
+                          'mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0',
+                          t.status === 'completed' ? 'bg-green-500 border-green-500' : 'border-slate-300'
+                        )}>
+                          {t.status === 'completed' && <CheckCircle2 className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={cn(
+                            'text-sm font-medium truncate',
+                            t.status === 'completed' ? 'text-slate-700 line-through' : 'text-slate-800'
+                          )}>
+                            {t.title}
+                          </p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {t.assigneeId && getUserById(t.assigneeId)?.name} · 截止 {formatDate(t.deadline)}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={cn(
+                        'text-[10px] font-medium px-2 py-0.5 rounded flex-shrink-0',
+                        t.status === 'completed' && 'bg-green-100 text-green-700',
+                        t.status === 'in_progress' && 'bg-blue-100 text-blue-700',
+                        t.status === 'todo' && 'bg-slate-100 text-slate-600',
+                        t.status === 'review' && 'bg-amber-100 text-amber-700',
+                        t.status === 'cancelled' && 'bg-slate-100 text-slate-500',
+                      )}>
+                        {t.status === 'completed' && '完成'}
+                        {t.status === 'in_progress' && '进行中'}
+                        {t.status === 'todo' && '待办'}
+                        {t.status === 'review' && '待验收'}
+                        {t.status === 'cancelled' && '已取消'}
+                      </span>
+                    </div>
+                  ))}
+                  {eventTasks.length > 8 && (
+                    <p className="text-xs text-slate-400 text-center pt-1">另有 {eventTasks.length - 8} 项任务，前往原事件查看</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {eventDocs.length > 0 && (
+              <div className="card p-5">
+                <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                  <MessageSquare className="w-4.5 h-4.5 text-purple-500" />
+                  关键沟通文档
+                  <span className="text-xs font-normal text-slate-400 ml-1">（共 {eventDocs.length} 份）</span>
+                </h3>
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {eventDocs.slice(0, 6).map((d) => (
+                    <div
+                      key={d.id}
+                      className="flex items-start justify-between gap-2 p-3 rounded-lg border border-slate-100 bg-white hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-start gap-2 min-w-0">
+                        <div className="mt-0.5 w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{d.title}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            v{d.currentVersion || 1} · {d.versions.length} 个版本 · {formatDate(d.createdAt)}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={cn(
+                        'text-[10px] font-medium px-2 py-0.5 rounded flex-shrink-0',
+                        d.approvalStatus === 'approved' && 'bg-green-100 text-green-700',
+                        d.approvalStatus === 'pending' && 'bg-amber-100 text-amber-700',
+                        d.approvalStatus === 'rejected' && 'bg-red-100 text-red-700',
+                        d.approvalStatus === 'draft' && 'bg-slate-100 text-slate-600',
+                      )}>
+                        {d.approvalStatus === 'approved' && '审批通过'}
+                        {d.approvalStatus === 'pending' && '审批中'}
+                        {d.approvalStatus === 'rejected' && '审批驳回'}
+                        {d.approvalStatus === 'draft' && '草稿'}
+                      </span>
+                    </div>
+                  ))}
+                  {eventDocs.length > 6 && (
+                    <p className="text-xs text-slate-400 text-center pt-1">另有 {eventDocs.length - 6} 份文档，前往原事件查看</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {sentimentPeak && (
+              <div className="card p-5 border-l-4 border-l-orange-400">
+                <h3 className="font-serif text-lg font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                  <TrendingUp className="w-4.5 h-4.5 text-orange-500" />
+                  舆情峰值节点
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                  <div className="rounded-lg bg-orange-50 p-3">
+                    <p className="text-[11px] text-slate-500 mb-0.5">峰值日期</p>
+                    <p className="text-sm font-semibold text-slate-800">{formatDate(sentimentPeak.recordedAt)}</p>
+                  </div>
+                  <div className="rounded-lg bg-orange-50 p-3">
+                    <p className="text-[11px] text-slate-500 mb-0.5">峰值提及量</p>
+                    <p className="text-sm font-semibold text-slate-800 font-serif">
+                      {new Intl.NumberFormat('zh-CN').format(sentimentPeak.mentionCount)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-red-50 p-3">
+                    <p className="text-[11px] text-slate-500 mb-0.5">峰值负面量</p>
+                    <p className="text-sm font-semibold text-red-600 font-serif">
+                      {new Intl.NumberFormat('zh-CN').format(sentimentPeak.negativeCount)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-red-50 p-3">
+                    <p className="text-[11px] text-slate-500 mb-0.5">负面占比</p>
+                    <p className="text-sm font-semibold text-red-600 font-serif">
+                      {sentimentPeak.mentionCount > 0
+                        ? Math.round((sentimentPeak.negativeCount / sentimentPeak.mentionCount) * 100)
+                        : 0}%
+                    </p>
+                  </div>
+                </div>
+                {sentimentPeak.platformBreakdown && sentimentPeak.platformBreakdown.length > 0 && (
+                  <div className="border-t border-slate-100 pt-3">
+                    <p className="text-[11px] text-slate-400 mb-2">峰值当日平台分布：</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {sentimentPeak.platformBreakdown.map((pb) => (
+                        <span
+                          key={pb.platform}
+                          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-700"
+                        >
+                          <span className="font-medium text-slate-800">{getPlatformLabel(pb.platform)}</span>
+                          <span className="text-slate-500">{new Intl.NumberFormat('zh-CN').format(pb.count)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {sentimentPeak.note && (
+                  <div className="border-t border-slate-100 pt-3 mt-3">
+                    <p className="text-[11px] text-slate-400 mb-1">当时记录备注：</p>
+                    <p className="text-sm text-slate-600 leading-relaxed">{sentimentPeak.note}</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="card p-5">

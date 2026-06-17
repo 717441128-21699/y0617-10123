@@ -71,7 +71,15 @@ export const useDocStore = create<DocStore>((set, get) => ({
       storage.set(STORAGE_KEYS.DOCS, mockDocs);
       set({ docs: mockDocs });
     } else {
-      set({ docs: stored });
+      const existingIds = new Set(stored.map((d) => d.id));
+      const toAdd = mockDocs.filter((m) => !existingIds.has(m.id));
+      if (toAdd.length > 0) {
+        const merged = [...stored, ...toAdd];
+        storage.set(STORAGE_KEYS.DOCS, merged);
+        set({ docs: merged });
+      } else {
+        set({ docs: stored });
+      }
     }
   },
 
