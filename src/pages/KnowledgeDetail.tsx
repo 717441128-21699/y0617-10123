@@ -13,6 +13,9 @@ import {
   AlertTriangle,
   FileText,
   ArrowRight,
+  ExternalLink,
+  GripVertical,
+  Flag,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -28,8 +31,9 @@ import EmptyState from '@/components/common/EmptyState';
 import SeverityIndicator from '@/components/events/SeverityIndicator';
 import { useUserStore } from '@/store/userStore';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
+import { useEventStore } from '@/store/eventStore';
 import { formatDate, daysBetween } from '@/utils/date';
-import { getSeverityConfig } from '@/utils/status';
+import { getSeverityConfig, getEventStatusConfig as getStatusConfig } from '@/utils/status';
 import { getInitials } from '@/utils/format';
 import { cn } from '@/lib/utils';
 import type { KnowledgeBaseCase } from '@/types';
@@ -38,20 +42,35 @@ export default function KnowledgeDetail() {
   const navigate = useNavigate();
   const { id = '' } = useParams<{ id: string }>();
   const { initUsers, getUserById } = useUserStore();
-  const { initAll, getCaseById, cases } = useKnowledgeStore();
+  const { initAll, getCaseById, cases, getTimelineByEventId } = useKnowledgeStore();
+  const { initEvents, getEventById } = useEventStore();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     initUsers();
     initAll();
+    initEvents();
     const timer = setTimeout(() => setLoading(false), 300);
     return () => clearTimeout(timer);
-  }, [initUsers, initAll]);
+  }, [initUsers, initAll, initEvents]);
 
   const caseItem = useMemo(
     () => getCaseById(id),
     [id, getCaseById, cases]
   );
+
+  const linkedEvent = useMemo(() => {
+    if (!caseItem) return null;
+    const eventId = caseItem.id.startsWith('kb_')
+      ? caseItem.id.slice(3)
+      : caseItem.id;
+    return getEventById(eventId);
+  }, [caseItem, getEventById]);
+
+  const eventTimeline = useMemo(() => {
+    if (!linkedEvent) return [];
+    return getTimelineByEventId(linkedEvent.id);
+  }, [linkedEvent, getTimelineByEventId]);
 
   const similarCases = useMemo(() => {
     if (!caseItem) return [];
@@ -161,9 +180,22 @@ export default function KnowledgeDetail() {
             </div>
           </div>
 
-          <h1 className="font-serif text-2xl font-bold text-slate-800 leading-tight mb-4">
+          <h1 className="font-serif text-2xl font-bold text-slate-800 leading-tight mb-2">
             {caseItem.title}
           </h1>
+
+          {linkedEvent && (
+            <div className="mb-4">
+              <Link
+                to={`/events/${linkedEvent.id}`}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary-600 bg-primary-50 hover:bg-primary-100 border border-primary-100 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                查看原事件详情
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-500 pt-4 border-t border-slate-100">
             <div className="flex items-center gap-2">
@@ -202,6 +234,99 @@ export default function KnowledgeDetail() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-8 space-y-4">
+            {linkedEvent && (
+              <div className="card p-5 border-l-4 border-l-green-500">
+                <h3 className="font-serif text-lg font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                  <Flag className="w-4.5 h-4.5 text-green-600" />
+                  最终处置结果
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-[11px] text-slate-400 mb-1">最终状态</p>
+                    <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+                      <span className={cn(
+                        'inline-block w-2 h-2 rounded-full',
+                        getStatusConfig(linkedEvent.status).dotColor
+                      )} />
+                      {getStatusConfig(linkedEvent.status).label}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-[11px] text-slate-400 mb-1">峰值传播量</p>
+                    <p className="text-sm font-semibold text-slate-800 font-serif">
+                      {linkedEvent.peakReach ? new Intl.NumberFormat('zh-CN').format(linkedEvent.peakReach) : '-'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-[11px] text-slate-400 mb-1">解决时间</p>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {linkedEvent.resolvedAt ? formatDate(linkedEvent.resolvedAt) : '未解决'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-[11px] text-slate-400 mb-1">处理历时</p>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {linkedEvent.resolvedAt ? `${daysBetween(linkedEvent.discoveredAt, linkedEvent.resolvedAt)} 天` : '进行中'}
+                    </p>
+                  </div>
+                </div>
+                {linkedEvent.statusHistory && linkedEvent.statusHistory.length > 0 && (
+                  <div className="border-t border-slate-100 pt-3">
+                    <p className="text-xs text-slate-400 mb-2">状态流转记录：</p>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {linkedEvent.statusHistory.map((s, idx) => (
+                        <div key={idx} className="flex items-center gap-1">
+                          <span className={cn(
+                            'text-xs px-2 py-0.5 rounded',
+                            getStatusConfig(s.status).bgColor, getStatusConfig(s.status).textColor
+                          )}>
+                            {getStatusConfig(s.status).label}
+                          </span>
+                          {idx < linkedEvent.statusHistory.length - 1 && (
+                            <ArrowRight className="w-3 h-3 text-slate-300" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {eventTimeline.length > 0 && (
+              <div className="card p-5">
+                <h3 className="font-serif text-lg font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                  <GripVertical className="w-4.5 h-4.5 text-indigo-500" />
+                  关键时间线摘要
+                  <span className="text-xs font-normal text-slate-400 ml-1">（共 {eventTimeline.length} 条节点）</span>
+                </h3>
+                <div className="relative pl-6 space-y-4">
+                  <div className="absolute left-2 top-2 bottom-2 w-px bg-gradient-to-b from-indigo-200 via-indigo-200 to-transparent" />
+                  {eventTimeline.slice(0, 10).map((e) => (
+                    <div key={e.id} className="relative">
+                      <div className="absolute -left-[18px] top-1 w-3 h-3 rounded-full bg-white border-2 border-indigo-400" />
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">{e.title}</p>
+                          {e.description && (
+                            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{e.description}</p>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-slate-400 flex-shrink-0 whitespace-nowrap">
+                          {formatDate(e.timestamp)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {eventTimeline.length > 10 && (
+                    <p className="text-xs text-slate-400 text-center pt-1">
+                      另有 {eventTimeline.length - 10} 条节点，前往原事件查看完整时间线
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="card p-5">
               <h3 className="font-serif text-lg font-semibold text-slate-800 mb-3 flex items-center gap-2">
                 <AlertTriangle className="w-4.5 h-4.5 text-red-500" />

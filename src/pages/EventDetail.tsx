@@ -24,6 +24,14 @@ import {
   Star,
   Save,
   Send,
+  Activity,
+  AlertTriangle,
+  Flame,
+  Globe,
+  Download,
+  X,
+  Filter,
+  Calendar,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -141,7 +149,9 @@ export default function EventDetail() {
   const [loading, setLoading] = useState(true);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showSentimentForm, setShowSentimentForm] = useState(false);
+  const [sentimentRange, setSentimentRange] = useState<'24h' | '7d' | 'all'>('all');
   const [showTimelineModal, setShowTimelineModal] = useState(false);
+  const [timelineFilter, setTimelineFilter] = useState<TimelineEvent['type'] | 'all'>('all');
   const [selectedDoc, setSelectedDoc] = useState<CommunicationDoc | null>(null);
   const [docEditContent, setDocEditContent] = useState('');
   const [docEditChangeLog, setDocEditChangeLog] = useState('');
@@ -151,6 +161,54 @@ export default function EventDetail() {
   const tasks = getTasksByEventId(id);
   const docs = getDocsByEventId(id);
   const sentiments = getSentimentByEventId(id);
+
+  const filteredSentiments = useMemo(() => {
+    if (sentimentRange === 'all') return sentiments;
+    const now = Date.now();
+    const cutoff = sentimentRange === '24h'
+      ? now - 24 * 60 * 60 * 1000
+      : now - 7 * 24 * 60 * 60 * 1000;
+    return sentiments.filter((s) => new Date(s.recordedAt).getTime() >= cutoff);
+  }, [sentiments, sentimentRange]);
+
+  const sentimentMetrics = useMemo(() => {
+    if (filteredSentiments.length === 0) {
+      return { totalMentions: 0, negativeRatio: 0, peakReach: 0, peakDate: '', topPlatform: null as null | { label: string; count: number } };
+    }
+    const totalMentions = filteredSentiments.reduce((sum, s) => sum + s.mentionCount, 0);
+    const totalNeg = filteredSentiments.reduce((sum, s) => sum + s.negativeCount, 0);
+    const totalPos = filteredSentiments.reduce((sum, s) => sum + s.positiveCount, 0);
+    const totalNeu = filteredSentiments.reduce((sum, s) => sum + s.neutralCount, 0);
+    const negativeRatio = totalMentions > 0 ? Math.round((totalNeg / totalMentions) * 100) : 0;
+    let peakReach = 0;
+    let peakDate = '';
+    filteredSentiments.forEach((s) => {
+      if (s.mentionCount > peakReach) {
+        peakReach = s.mentionCount;
+        peakDate = s.recordedAt;
+      }
+    });
+    const platformMap = new Map<string, number>();
+    filteredSentiments.forEach((s) => {
+      (s.platformBreakdown || []).forEach((pb) => {
+        const label = getPlatformLabel(pb.platform);
+        platformMap.set(label, (platformMap.get(label) || 0) + pb.count);
+      });
+    });
+    const topPlatformArr = Array.from(platformMap.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count);
+    return {
+      totalMentions,
+      totalNeg,
+      totalNeu,
+      totalPos,
+      negativeRatio,
+      peakReach,
+      peakDate,
+      topPlatform: topPlatformArr[0] || null,
+    };
+  }, [filteredSentiments]);
   const timeline = getTimelineByEventId(id);
   const review = getReviewByEventId(id);
 
@@ -368,30 +426,30 @@ export default function EventDetail() {
   };
 
   const sentimentChartData = useMemo(() => {
-    if (sentiments.length === 0) return [];
-    return sentiments.map((s) => ({
+    if (filteredSentiments.length === 0) return [];
+    return filteredSentiments.map((s) => ({
       date: formatDate(s.recordedAt).slice(5),
       提及量: s.mentionCount,
       负面: s.negativeCount,
       中性: s.neutralCount,
       正面: s.positiveCount,
     }));
-  }, [sentiments]);
+  }, [filteredSentiments]);
 
   const sentimentPieData = useMemo(() => {
-    if (sentiments.length === 0) return [];
-    const total = sentiments[sentiments.length - 1];
+    if (filteredSentiments.length === 0) return [];
+    const total = filteredSentiments[filteredSentiments.length - 1];
     return [
       { name: '负面', value: total.negativeCount },
       { name: '中性', value: total.neutralCount },
       { name: '正面', value: total.positiveCount },
     ].filter((d) => d.value > 0);
-  }, [sentiments]);
+  }, [filteredSentiments]);
 
   const platformChartData = useMemo(() => {
-    if (sentiments.length === 0) return [];
+    if (filteredSentiments.length === 0) return [];
     const platformMap = new Map<string, number>();
-    sentiments.forEach((s) => {
+    filteredSentiments.forEach((s) => {
       (s.platformBreakdown || []).forEach((pb) => {
         const label = getPlatformLabel(pb.platform);
         platformMap.set(label, (platformMap.get(label) || 0) + pb.count);
@@ -400,7 +458,7 @@ export default function EventDetail() {
     return Array.from(platformMap.entries())
       .map(([platform, count]) => ({ platform, count }))
       .sort((a, b) => b.count - a.count);
-  }, [sentiments]);
+  }, [filteredSentiments]);
 
   const tasksByStatus = useMemo(() => {
     const map: Record<TaskStatus, Task[]> = {
@@ -655,6 +713,87 @@ export default function EventDetail() {
   const renderSentiment = () => (
     <div className="space-y-4">
       <div className="card p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h3 className="font-serif text-lg font-semibold text-slate-800 flex items-center gap-2">
+            <Activity className="w-5 h-5 text-blue-500" />
+            舆情监测看板
+          </h3>
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+            {([
+              { key: '24h', label: '近24小时' },
+              { key: '7d', label: '近7天' },
+              { key: 'all', label: '全部记录' },
+            ] as const).map((r) => (
+              <button
+                key={r.key}
+                onClick={() => setSentimentRange(r.key)}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium rounded-md transition-all',
+                  sentimentRange === r.key
+                    ? 'bg-white text-primary-700 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                )}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-slate-100 bg-gradient-to-br from-slate-50 to-white p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-500">总提及量</span>
+              <Activity className="w-4 h-4 text-blue-500" />
+            </div>
+            <p className="text-2xl font-serif font-bold text-slate-800">
+              {formatReach(sentimentMetrics.totalMentions)}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">共 {filteredSentiments.length} 条记录</p>
+          </div>
+
+          <div className="rounded-xl border border-slate-100 bg-gradient-to-br from-red-50 to-white p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-500">负面占比</span>
+              <AlertTriangle className="w-4 h-4 text-red-500" />
+            </div>
+            <p className="text-2xl font-serif font-bold text-red-600">
+              {sentimentMetrics.negativeRatio}<span className="text-sm font-normal ml-0.5">%</span>
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {formatReach((sentimentMetrics as any).totalNeg || 0)} 负面 · {formatReach((sentimentMetrics as any).totalPos || 0)} 正面
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-100 bg-gradient-to-br from-orange-50 to-white p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-500">传播峰值</span>
+              <Flame className="w-4 h-4 text-orange-500" />
+            </div>
+            <p className="text-2xl font-serif font-bold text-orange-600">
+              {formatReach(sentimentMetrics.peakReach)}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {sentimentMetrics.peakDate ? formatDate(sentimentMetrics.peakDate) : '-'}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-100 bg-gradient-to-br from-indigo-50 to-white p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-slate-500">主要平台</span>
+              <Globe className="w-4 h-4 text-indigo-500" />
+            </div>
+            <p className="text-2xl font-serif font-bold text-indigo-600 truncate">
+              {sentimentMetrics.topPlatform?.label || '-'}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {sentimentMetrics.topPlatform ? `${formatReach(sentimentMetrics.topPlatform.count)} 提及` : '暂无平台数据'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-serif text-lg font-semibold text-slate-800 flex items-center gap-2">
             <Plus className={cn('w-4 h-4 transition-transform', showSentimentForm && 'rotate-45')} />
@@ -746,17 +885,113 @@ export default function EventDetail() {
     </div>
   );
 
-  const renderTimeline = () => (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-slate-500">共 {timeline.length} 条时间节点</p>
-        <Button size="sm" leftIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => setShowTimelineModal(true)}>
-          添加时间节点
-        </Button>
+  const renderTimeline = () => {
+    const filteredTimeline = timelineFilter === 'all'
+      ? timeline
+      : timeline.filter((t) => t.type === timelineFilter);
+
+    const sortedTimeline = [...filteredTimeline].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    const typeLabel: Record<TimelineEvent['type'], string> = {
+      status_change: '状态变更',
+      task: '任务',
+      communication: '沟通记录',
+      sentiment_update: '舆情更新',
+      external: '外部事件',
+      note: '备注',
+    };
+
+    const exportTimeline = () => {
+      const title = `事件复盘记录 - ${event?.title || '未命名事件'}\n`;
+      const meta = `导出时间：${formatDateTime(new Date().toISOString())}\n\n`;
+      const content = sortedTimeline
+        .map((t, idx) => {
+          return [
+            `【${idx + 1}】${formatDateTime(t.timestamp)} · ${typeLabel[t.type]}`,
+            `标题：${t.title}`,
+            t.description ? `说明：${t.description}` : null,
+            `操作人：${getUserById(t.createdBy)?.name || t.createdBy}`,
+          ].filter(Boolean).join('\n');
+        })
+        .join('\n\n');
+      const fullText = `${title}${meta}${content}`;
+      const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${event?.title || '复盘记录'}_时间线导出.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+
+    return (
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm text-slate-500 flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5" />
+              共 {filteredTimeline.length} 条时间节点
+            </p>
+            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 flex-wrap">
+              <button
+                onClick={() => setTimelineFilter('all')}
+                className={cn(
+                  'px-2.5 py-1 text-xs font-medium rounded-md transition-all',
+                  timelineFilter === 'all'
+                    ? 'bg-white text-primary-700 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                )}
+              >
+                全部
+              </button>
+              {(Object.keys(typeLabel) as TimelineEvent['type'][]).map((tp) => (
+                <button
+                  key={tp}
+                  onClick={() => setTimelineFilter(tp)}
+                  className={cn(
+                    'px-2.5 py-1 text-xs font-medium rounded-md transition-all',
+                    timelineFilter === tp
+                      ? 'bg-white text-primary-700 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  )}
+                >
+                  {typeLabel[tp]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {timelineFilter !== 'all' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                leftIcon={<X className="w-3.5 h-3.5" />}
+                onClick={() => setTimelineFilter('all')}
+              >
+                清除筛选
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<Download className="w-3.5 h-3.5" />}
+              onClick={exportTimeline}
+            >
+              导出记录
+            </Button>
+            <Button size="sm" leftIcon={<Plus className="w-3.5 h-3.5" />} onClick={() => setShowTimelineModal(true)}>
+              添加节点
+            </Button>
+          </div>
+        </div>
+        <EventTimeline events={sortedTimeline} />
       </div>
-      <EventTimeline events={timeline} />
-    </div>
-  );
+    );
+  };
 
   const renderReview = () => {
     if (!isResolved && !review) {
