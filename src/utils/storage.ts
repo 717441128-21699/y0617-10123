@@ -58,6 +58,7 @@ export const STORAGE_KEYS = {
   TASKS: 'tasks',
   DOCS: 'docs',
   KNOWLEDGE: 'knowledge',
+  KNOWLEDGE_CASES: 'knowledgeCases',
   SENTIMENT_RECORDS: 'sentimentRecords',
   TIMELINE_EVENTS: 'timelineEvents',
   REVIEW_SUMMARIES: 'reviewSummaries',

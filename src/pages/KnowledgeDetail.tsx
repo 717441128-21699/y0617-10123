@@ -26,7 +26,6 @@ import {
 import PageContainer from '@/components/layout/PageContainer';
 import EmptyState from '@/components/common/EmptyState';
 import SeverityIndicator from '@/components/events/SeverityIndicator';
-import { mockKnowledgeItems } from '@/data/mockKnowledge';
 import { useUserStore } from '@/store/userStore';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { formatDate, daysBetween } from '@/utils/date';
@@ -39,7 +38,7 @@ export default function KnowledgeDetail() {
   const navigate = useNavigate();
   const { id = '' } = useParams<{ id: string }>();
   const { initUsers, getUserById } = useUserStore();
-  const { initAll } = useKnowledgeStore();
+  const { initAll, getCaseById, cases } = useKnowledgeStore();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -50,16 +49,16 @@ export default function KnowledgeDetail() {
   }, [initUsers, initAll]);
 
   const caseItem = useMemo(
-    () => mockKnowledgeItems.find((c) => c.id === id),
-    [id]
+    () => getCaseById(id),
+    [id, getCaseById, cases]
   );
 
   const similarCases = useMemo(() => {
     if (!caseItem) return [];
-    return mockKnowledgeItems
+    return cases
       .filter((c) => c.id !== caseItem.id && c.category === caseItem.category)
       .slice(0, 3);
-  }, [caseItem]);
+  }, [caseItem, cases]);
 
   if (loading) {
     return (

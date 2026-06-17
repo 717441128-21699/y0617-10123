@@ -14,7 +14,6 @@ import {
 import PageContainer from '@/components/layout/PageContainer';
 import EmptyState from '@/components/common/EmptyState';
 import SeverityIndicator from '@/components/events/SeverityIndicator';
-import { mockKnowledgeItems } from '@/data/mockKnowledge';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { formatDate, daysBetween } from '@/utils/date';
 import { getSeverityConfig } from '@/utils/status';
@@ -23,7 +22,7 @@ import type { KnowledgeBaseCase, SeverityLevel } from '@/types';
 
 export default function KnowledgeBase() {
   const navigate = useNavigate();
-  const { initAll } = useKnowledgeStore();
+  const { initAll, cases } = useKnowledgeStore();
 
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -38,15 +37,15 @@ export default function KnowledgeBase() {
 
   const categories = useMemo(() => {
     const map: Record<string, number> = {};
-    mockKnowledgeItems.forEach((item) => {
+    cases.forEach((item) => {
       map[item.category] = (map[item.category] || 0) + 1;
     });
     return Object.entries(map).map(([name, count]) => ({ name, count }));
-  }, []);
+  }, [cases]);
 
   const allTags = useMemo(() => {
     const map: Record<string, number> = {};
-    mockKnowledgeItems.forEach((item) => {
+    cases.forEach((item) => {
       item.lessons.forEach((l) => {
         map[l.category] = (map[l.category] || 0) + 1;
       });
@@ -55,25 +54,25 @@ export default function KnowledgeBase() {
     return Object.entries(map).map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 15);
-  }, []);
+  }, [cases]);
 
   const stats = useMemo(() => {
-    const totalCases = mockKnowledgeItems.length;
+    const totalCases = cases.length;
     const avgRating = totalCases > 0
-      ? (mockKnowledgeItems.reduce((s, i) => s + i.reviewSummary.overallRating, 0) / totalCases).toFixed(1)
+      ? (cases.reduce((s, i) => s + i.reviewSummary.overallRating, 0) / totalCases).toFixed(1)
       : '0';
     const lessonMap: Record<string, number> = {};
-    mockKnowledgeItems.forEach((item) => {
+    cases.forEach((item) => {
       item.lessons.forEach((l) => {
         lessonMap[l.category] = (lessonMap[l.category] || 0) + 1;
       });
     });
     const topLesson = Object.entries(lessonMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '-';
     return { totalCases, avgRating, topLesson };
-  }, []);
+  }, [cases]);
 
   const filteredCases = useMemo(() => {
-    return mockKnowledgeItems.filter((c) => {
+    return cases.filter((c) => {
       if (selectedCategory !== 'all' && c.category !== selectedCategory) return false;
       if (selectedSeverities.length > 0 && !selectedSeverities.includes(c.severity)) return false;
       if (search) {
@@ -88,7 +87,7 @@ export default function KnowledgeBase() {
       }
       return true;
     });
-  }, [search, selectedCategory, selectedSeverities]);
+  }, [search, selectedCategory, selectedSeverities, cases]);
 
   const toggleSeverity = (lv: SeverityLevel) => {
     setSelectedSeverities((prev) =>
@@ -152,7 +151,7 @@ export default function KnowledgeBase() {
                     'text-xs px-2 py-0.5 rounded-full',
                     selectedCategory === 'all' ? 'bg-primary-100 text-primary-700' : 'bg-slate-100 text-slate-500'
                   )}>
-                    {mockKnowledgeItems.length}
+                    {cases.length}
                   </span>
                 </button>
                 {categories.map((cat) => (

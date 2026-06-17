@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Archive,
@@ -22,6 +22,8 @@ import {
   CheckCircle2,
   XCircle,
   Star,
+  Save,
+  Send,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -53,20 +55,20 @@ import SeverityIndicator from '@/components/events/SeverityIndicator';
 import EventTimeline from '@/components/events/EventTimeline';
 import TaskKanbanColumn from '@/components/tasks/TaskKanbanColumn';
 import TaskForm from '@/components/tasks/TaskForm';
+import SentimentForm from '@/components/sentiment/SentimentForm';
 import { useEventStore } from '@/store/eventStore';
 import { useTaskStore } from '@/store/taskStore';
 import { useDocStore } from '@/store/docStore';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { useUserStore } from '@/store/userStore';
 import { formatDateTime, formatRelative, formatDate, daysBetween } from '@/utils/date';
-import { formatReach, getInitials } from '@/utils/format';
+import { formatReach, getInitials, formatNumber } from '@/utils/format';
 import {
   getPlatformLabel,
   getEventStatusConfig,
   getSeverityConfig,
   getDocTypeConfig,
   getApprovalStatusConfig,
-  getTaskStatusConfig,
   getRoleLabel,
 } from '@/utils/status';
 import { cn } from '@/lib/utils';
@@ -79,8 +81,6 @@ import type {
   ReviewSummary,
   SentimentRecord,
   User,
-  TaskPriority,
-  TaskType,
 } from '@/types';
 
 const EVENT_STATUS_STEPS: { key: EventStatus; label: string }[] = [
@@ -123,7 +123,7 @@ export default function EventDetail() {
   const { id = '' } = useParams<{ id: string }>();
   const { getEventById, updateEventStatus, initEvents } = useEventStore();
   const { getTasksByEventId, addTask, initTasks, updateTaskStatus } = useTaskStore();
-  const { getDocsByEventId, initDocs } = useDocStore();
+  const { getDocsByEventId, initDocs, addDocVersion, submitForApproval, addApproval } = useDocStore();
   const {
     getSentimentByEventId,
     getTimelineByEventId,
@@ -131,6 +131,8 @@ export default function EventDetail() {
     addSentimentRecord,
     addTimelineEvent,
     addReviewSummary,
+    cases: knowledgeCases,
+    addCase,
     initAll,
   } = useKnowledgeStore();
   const { users, initUsers, getUserById, currentUserId } = useUserStore();
@@ -138,10 +140,12 @@ export default function EventDetail() {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [loading, setLoading] = useState(true);
   const [showTaskModal, setShowTaskModal] = useState(false);
-  const [showDocEditor, setShowDocEditor] = useState<string | null>(null);
-  const [showTimelineModal, setShowTimelineModal] = useState(false);
   const [showSentimentForm, setShowSentimentForm] = useState(false);
+  const [showTimelineModal, setShowTimelineModal] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<CommunicationDoc | null>(null);
+  const [docEditContent, setDocEditContent] = useState('');
+  const [docEditChangeLog, setDocEditChangeLog] = useState('');
+  const [approvalComment, setApprovalComment] = useState('');
 
   const event = getEventById(id);
   const tasks = getTasksByEventId(id);
@@ -150,13 +154,6 @@ export default function EventDetail() {
   const timeline = getTimelineByEventId(id);
   const review = getReviewByEventId(id);
 
-  const [sentimentForm, setSentimentForm] = useState({
-    mentionCount: 0,
-    negativeCount: 0,
-    neutralCount: 0,
-    positiveCount: 0,
-    note: '',
-  });
   const [timelineForm, setTimelineForm] = useState({
     type: 'note' as TimelineEvent['type'],
     title: '',
@@ -198,47 +195,172 @@ export default function EventDetail() {
   const handleStatusChange = (newStatus: EventStatus) => {
     if (!event) return;
     updateEventStatus(id, newStatus);
+    const cfg = getEventStatusConfig(newStatus);
+    addTimelineEvent({
+      eventId: id,
+      type: 'status_change',
+      title: `事件状态变更为「${cfg.label}」`,
+      description: `事件从「${getEventStatusConfig(event.status).label}」流转至「${cfg.label}」`,
+      createdBy: currentUserId,
+    });
   };
 
   const handleArchive = () => {
     if (!event) return;
     updateEventStatus(id, 'archived');
+    addTimelineEvent({
+      eventId: id,
+      type: 'status_change',
+      title: '事件已归档',
+      description: '事件已处理完毕，归入知识库',
+      createdBy: currentUserId,
+    });
   };
 
   const handleCreateTask = (data: Partial<Task>) => {
-    addTask({ ...data, eventId: id });
+    const newTask = addTask({ ...data, eventId: id });
     setShowTaskModal(false);
-  };
-
-  const handleSubmitSentiment = () => {
-    addSentimentRecord({
-      ...sentimentForm,
-      eventId: id,
-      platformBreakdown: [],
-      recordedBy: currentUserId,
-    });
-    setShowSentimentForm(false);
-    setSentimentForm({ mentionCount: 0, negativeCount: 0, neutralCount: 0, positiveCount: 0, note: '' });
-  };
-
-  const handleSubmitTimeline = () => {
+    const assignee = getUserById(data.assigneeId || '');
     addTimelineEvent({
-      ...timelineForm,
       eventId: id,
-      timestamp: new Date(timelineForm.timestamp).toISOString(),
+      type: 'task',
+      title: `新建任务：${data.title || '未命名任务'}`,
+      description: `分配给${assignee?.name || '未指定'}，优先级：${data.priority || '中'}`,
+      relatedId: newTask.id,
       createdBy: currentUserId,
     });
-    setShowTimelineModal(false);
-    setTimelineForm({ type: 'note', title: '', description: '', timestamp: new Date().toISOString().slice(0, 16) });
+  };
+
+  const handleTaskStatusUpdate = (task: Task, newStatus: TaskStatus) => {
+    updateTaskStatus(task.id, newStatus);
+    const statusLabels: Record<TaskStatus, string> = {
+      todo: '待办', in_progress: '进行中', review: '审核中', completed: '已完成', cancelled: '已取消',
+    };
+    addTimelineEvent({
+      eventId: id,
+      type: 'task',
+      title: `任务「${task.title}」状态更新`,
+      description: `从「${statusLabels[task.status]}」变更为「${statusLabels[newStatus]}」`,
+      relatedId: task.id,
+      createdBy: currentUserId,
+    });
+  };
+
+  const handleSentimentSubmit = (record: SentimentRecord) => {
+    addTimelineEvent({
+      eventId: id,
+      type: 'sentiment_update',
+      title: `录入舆情数据：提及量 ${formatReach(record.mentionCount)}`,
+      description: `负面 ${formatReach(record.negativeCount)}，中性 ${formatReach(record.neutralCount)}，正面 ${formatReach(record.positiveCount)}`,
+      relatedId: record.id,
+      createdBy: currentUserId,
+    });
+    setShowSentimentForm(false);
+  };
+
+  const handleSaveDocVersion = () => {
+    if (!selectedDoc || !docEditContent.trim()) return;
+    addDocVersion(selectedDoc.id, docEditContent, docEditChangeLog || '更新内容', currentUserId || 'u001');
+    addTimelineEvent({
+      eventId: id,
+      type: 'communication',
+      title: `文档「${selectedDoc.title}」更新新版本`,
+      description: docEditChangeLog || '更新内容',
+      relatedId: selectedDoc.id,
+      createdBy: currentUserId,
+    });
+    const updatedDoc = useDocStore.getState().getDocById(selectedDoc.id);
+    if (updatedDoc) {
+      setSelectedDoc(updatedDoc);
+    }
+    setDocEditChangeLog('');
+  };
+
+  const handleSubmitApproval = () => {
+    if (!selectedDoc) return;
+    const latestVer = selectedDoc.versions[selectedDoc.versions.length - 1]?.version || '1.0';
+    submitForApproval(selectedDoc.id, latestVer);
+    addTimelineEvent({
+      eventId: id,
+      type: 'communication',
+      title: `文档「${selectedDoc.title}」提交审批`,
+      description: `版本 ${latestVer} 已提交审批`,
+      relatedId: selectedDoc.id,
+      createdBy: currentUserId,
+    });
+    const updatedDoc = useDocStore.getState().getDocById(selectedDoc.id);
+    if (updatedDoc) {
+      setSelectedDoc(updatedDoc);
+    }
+  };
+
+  const handleApprove = (status: 'approved' | 'rejected') => {
+    if (!selectedDoc) return;
+    const latestVer = selectedDoc.versions[selectedDoc.versions.length - 1]?.version || '1.0';
+    addApproval(selectedDoc.id, latestVer, currentUserId || 'u001', status, approvalComment);
+    addTimelineEvent({
+      eventId: id,
+      type: 'communication',
+      title: `文档「${selectedDoc.title}」${status === 'approved' ? '审批通过' : '审批驳回'}`,
+      description: approvalComment || (status === 'approved' ? '审批通过' : '审批驳回'),
+      relatedId: selectedDoc.id,
+      createdBy: currentUserId,
+    });
+    setApprovalComment('');
+    const updatedDoc = useDocStore.getState().getDocById(selectedDoc.id);
+    if (updatedDoc) {
+      setSelectedDoc(updatedDoc);
+    }
   };
 
   const handleSubmitReview = () => {
+    const lessons = reviewForm.lessonsText.split('\n').filter(Boolean);
     addReviewSummary({
       ...reviewForm,
       eventId: id,
-      lessons: reviewForm.lessonsText.split('\n').filter(Boolean),
+      lessons,
       completedBy: currentUserId,
     });
+
+    const knowledgeExists = knowledgeCases.some((c) => c.id === `kb_${id}`);
+    if (!knowledgeExists && event) {
+      addCase({
+        id: `kb_${id}`,
+        title: event.title,
+        category: event.category,
+        severity: event.severity,
+        startedAt: event.discoveredAt,
+        resolvedAt: event.resolvedAt || new Date().toISOString(),
+        archivedAt: new Date().toISOString(),
+        description: event.cause,
+        summary: `${reviewForm.strengths.slice(0, 80)}...`,
+        stakeholders: event.assignees,
+        reviewSummary: {
+          strengths: reviewForm.strengths.split('\n').filter(Boolean),
+          weaknesses: reviewForm.weaknesses.split('\n').filter(Boolean),
+          suggestions: reviewForm.suggestions.split('\n').filter(Boolean),
+          responseTime: reviewForm.responseTime,
+          communication: reviewForm.communication,
+          execution: reviewForm.execution,
+          overallRating: reviewForm.overallRating,
+        },
+        lessons: lessons.map((l, idx) => ({
+          id: `lesson_${id}_${idx}`,
+          title: l.slice(0, 30),
+          description: l,
+          category: event.category,
+        })),
+      });
+    }
+
+    addTimelineEvent({
+      eventId: id,
+      type: 'note',
+      title: '完成事件复盘',
+      description: `综合评分 ${reviewForm.overallRating}/5，${lessons.length} 条经验教训`,
+      createdBy: currentUserId,
+    });
+
     setReviewForm({
       strengths: '', weaknesses: '', rootCause: '', suggestions: '',
       responseTime: 3, communication: 3, execution: 3, overallRating: 3, lessonsText: '',
@@ -264,6 +386,20 @@ export default function EventDetail() {
       { name: '中性', value: total.neutralCount },
       { name: '正面', value: total.positiveCount },
     ].filter((d) => d.value > 0);
+  }, [sentiments]);
+
+  const platformChartData = useMemo(() => {
+    if (sentiments.length === 0) return [];
+    const platformMap = new Map<string, number>();
+    sentiments.forEach((s) => {
+      (s.platformBreakdown || []).forEach((pb) => {
+        const label = getPlatformLabel(pb.platform);
+        platformMap.set(label, (platformMap.get(label) || 0) + pb.count);
+      });
+    });
+    return Array.from(platformMap.entries())
+      .map(([platform, count]) => ({ platform, count }))
+      .sort((a, b) => b.count - a.count);
   }, [sentiments]);
 
   const tasksByStatus = useMemo(() => {
@@ -453,7 +589,7 @@ export default function EventDetail() {
             users={users}
             events={[event]}
             onAddTask={() => setShowTaskModal(true)}
-            onTaskClick={(task) => updateTaskStatus(task.id, getNextStatus(task.status))}
+            onTaskClick={(task) => handleTaskStatusUpdate(task, getNextStatus(task.status))}
           />
         ))}
       </div>
@@ -484,7 +620,12 @@ export default function EventDetail() {
             return (
               <div
                 key={doc.id}
-                onClick={() => { setSelectedDoc(doc); setShowDocEditor(doc.id); }}
+                onClick={() => {
+                  setSelectedDoc(doc);
+                  setDocEditContent(latestVer?.content || '');
+                  setDocEditChangeLog('');
+                  setApprovalComment('');
+                }}
                 className="card p-5 hover:shadow-md transition-all cursor-pointer border border-transparent hover:border-slate-200"
               >
                 <div className="flex items-start justify-between mb-3">
@@ -495,7 +636,7 @@ export default function EventDetail() {
                     </span>
                   </div>
                   <span className="text-xs text-slate-400">
-                    v{latestVer?.version || '0.1'}
+                    V{latestVer?.version || '0.1'}
                   </span>
                 </div>
                 <h4 className="text-base font-semibold text-slate-800 mb-2 line-clamp-1">{doc.title}</h4>
@@ -525,48 +666,11 @@ export default function EventDetail() {
           </Button>
         </div>
         {showSentimentForm && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">提及总量</label>
-              <input type="number" min={0} value={sentimentForm.mentionCount}
-                onChange={(e) => setSentimentForm({ ...sentimentForm, mentionCount: Number(e.target.value) })}
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-red-600 flex items-center gap-1">
-                <ThumbsDown className="w-3.5 h-3.5" /> 负面
-              </label>
-              <input type="number" min={0} value={sentimentForm.negativeCount}
-                onChange={(e) => setSentimentForm({ ...sentimentForm, negativeCount: Number(e.target.value) })}
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-400" />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-500 flex items-center gap-1">
-                <Minus className="w-3.5 h-3.5" /> 中性
-              </label>
-              <input type="number" min={0} value={sentimentForm.neutralCount}
-                onChange={(e) => setSentimentForm({ ...sentimentForm, neutralCount: Number(e.target.value) })}
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-400" />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-green-600 flex items-center gap-1">
-                <ThumbsUp className="w-3.5 h-3.5" /> 正面
-              </label>
-              <input type="number" min={0} value={sentimentForm.positiveCount}
-                onChange={(e) => setSentimentForm({ ...sentimentForm, positiveCount: Number(e.target.value) })}
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-400" />
-            </div>
-            <div className="sm:col-span-2 lg:col-span-3">
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">备注</label>
-              <input type="text" value={sentimentForm.note}
-                onChange={(e) => setSentimentForm({ ...sentimentForm, note: e.target.value })}
-                placeholder="可选：记录舆情趋势说明"
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-            </div>
-            <div className="flex items-end">
-              <Button onClick={handleSubmitSentiment} className="w-full">提交记录</Button>
-            </div>
-          </div>
+          <SentimentForm
+            eventId={id}
+            onSubmit={handleSentimentSubmit}
+            onCancel={() => setShowSentimentForm(false)}
+          />
         )}
       </div>
 
@@ -621,25 +725,22 @@ export default function EventDetail() {
         </div>
 
         <div className="card p-5">
-          <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4">各平台分布（示例）</h3>
-          <div className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={[
-                { platform: '微博', count: Math.floor(Math.random() * 2000 + 500) },
-                { platform: '微信', count: Math.floor(Math.random() * 1500 + 300) },
-                { platform: '抖音', count: Math.floor(Math.random() * 1200 + 200) },
-                { platform: '小红书', count: Math.floor(Math.random() * 800 + 100) },
-                { platform: '知乎', count: Math.floor(Math.random() * 600 + 50) },
-                { platform: '其他', count: Math.floor(Math.random() * 400) },
-              ]}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="platform" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                <Bar dataKey="count" name="提及量" fill="#8b5cf6" radius={[6, 6, 0, 0]} barSize={32} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          <h3 className="font-serif text-lg font-semibold text-slate-800 mb-4">各平台分布</h3>
+          {platformChartData.length === 0 ? (
+            <EmptyState title="暂无平台数据" description="录入舆情数据时请填写平台分解信息" />
+          ) : (
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={platformChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="platform" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={(v) => formatReach(v)} />
+                  <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }} formatter={(v: number) => [formatReach(v), '提及量']} />
+                  <Bar dataKey="count" name="提及量" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={32} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -969,42 +1070,153 @@ export default function EventDetail() {
           </div>
           <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
             <Button variant="ghost" onClick={() => setShowTimelineModal(false)}>取消</Button>
-            <Button onClick={handleSubmitTimeline}>确认添加</Button>
+            <Button onClick={() => {
+              addTimelineEvent({
+                ...timelineForm,
+                eventId: id,
+                timestamp: new Date(timelineForm.timestamp).toISOString(),
+                createdBy: currentUserId,
+              });
+              setShowTimelineModal(false);
+              setTimelineForm({ type: 'note', title: '', description: '', timestamp: new Date().toISOString().slice(0, 16) });
+            }}>确认添加</Button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={!!showDocEditor} onClose={() => { setShowDocEditor(null); setSelectedDoc(null); }} title={selectedDoc?.title || '文档详情'} maxWidth="xl">
-        {selectedDoc && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-xs font-medium', getDocTypeConfig(selectedDoc.type).icon && '')}>
-                {getDocTypeConfig(selectedDoc.type).icon} {getDocTypeConfig(selectedDoc.type).label}
-              </span>
-              <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium',
-                getApprovalStatusConfig(selectedDoc.approvalStatus).bgColor,
-                getApprovalStatusConfig(selectedDoc.approvalStatus).textColor)}>
-                {getApprovalStatusConfig(selectedDoc.approvalStatus).label}
-              </span>
-              <span className="text-xs text-slate-400">
-                当前版本：{selectedDoc.versions[selectedDoc.versions.length - 1]?.version || '0.1'}
-              </span>
+      <Modal
+        open={!!selectedDoc}
+        onClose={() => { setSelectedDoc(null); setDocEditContent(''); }}
+        title={selectedDoc?.title || '文档详情'}
+        maxWidth="xl"
+      >
+        {selectedDoc && (() => {
+          const latestVer = selectedDoc.versions[selectedDoc.versions.length - 1];
+          const appCfg = getApprovalStatusConfig(selectedDoc.approvalStatus);
+          const isDraft = selectedDoc.approvalStatus === 'draft' || selectedDoc.approvalStatus === 'rejected';
+
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm">{getDocTypeConfig(selectedDoc.type).icon}</span>
+                <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium', appCfg.bgColor, appCfg.textColor)}>
+                  {appCfg.label}
+                </span>
+                <span className="text-xs text-slate-400">
+                  当前版本：V{latestVer?.version || '0.1'}（共 {selectedDoc.versions.length} 个版本）
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="lg:col-span-2 space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">编辑内容</label>
+                    <textarea
+                      value={docEditContent}
+                      onChange={(e) => setDocEditContent(e.target.value)}
+                      rows={14}
+                      className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-400 font-sans leading-relaxed"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <input
+                        type="text"
+                        value={docEditChangeLog}
+                        onChange={(e) => setDocEditChangeLog(e.target.value)}
+                        placeholder="变更说明（可选）"
+                        className="h-9 w-full rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      leftIcon={<Save className="w-3.5 h-3.5" />}
+                      onClick={handleSaveDocVersion}
+                      disabled={docEditContent === (latestVer?.content || '')}
+                    >
+                      保存新版本
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                    <h4 className="text-sm font-medium text-slate-700 mb-2">版本历史</h4>
+                    <div className="space-y-2 max-h-40 overflow-y-auto scroll-thin">
+                      {[...selectedDoc.versions].reverse().map((v) => (
+                        <div key={v.version} className="text-xs p-2 rounded bg-white border border-slate-100">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-slate-700">V{v.version}</span>
+                            <span className="text-slate-400">{formatRelative(v.createdAt)}</span>
+                          </div>
+                          {v.changeLog && <p className="text-slate-500 mt-0.5 truncate">{v.changeLog}</p>}
+                          <p className="text-slate-400">{getUserById(v.createdBy)?.name || '未知'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                    <h4 className="text-sm font-medium text-slate-700 mb-2">审批操作</h4>
+                    {selectedDoc.approvals.length > 0 && (
+                      <div className="space-y-2 mb-3">
+                        {selectedDoc.approvals.map((a) => {
+                          const aCfg = getApprovalStatusConfig(a.status);
+                          return (
+                            <div key={a.id} className="text-xs p-2 rounded bg-white border border-slate-100">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-slate-700">{getUserById(a.approverId)?.name || '未知'}</span>
+                                <span className={cn('px-1.5 py-0.5 rounded text-[10px]', aCfg.bgColor, aCfg.textColor)}>{aCfg.label}</span>
+                              </div>
+                              {a.comment && <p className="text-slate-500 mt-0.5">{a.comment}</p>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {isDraft && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="w-full"
+                        leftIcon={<Send className="w-3.5 h-3.5" />}
+                        onClick={handleSubmitApproval}
+                      >
+                        提交审批
+                      </Button>
+                    )}
+
+                    {selectedDoc.approvalStatus === 'pending' && (
+                      <div className="space-y-2">
+                        <textarea
+                          value={approvalComment}
+                          onChange={(e) => setApprovalComment(e.target.value)}
+                          placeholder="审批意见..."
+                          rows={2}
+                          className="w-full resize-none rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="success" className="flex-1" onClick={() => handleApprove('approved')}>
+                            通过
+                          </Button>
+                          <Button size="sm" variant="danger" className="flex-1" onClick={() => handleApprove('rejected')}>
+                            驳回
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-100">
+                <span>创建人：{getUserById(selectedDoc.createdBy)?.name || '未知'}</span>
+                <span>创建时间：{formatDateTime(selectedDoc.createdAt)}</span>
+              </div>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 min-h-[300px]">
-              {selectedDoc.versions[selectedDoc.versions.length - 1]?.content ? (
-                <pre className="whitespace-pre-wrap text-sm text-slate-700 font-sans leading-relaxed">
-                  {selectedDoc.versions[selectedDoc.versions.length - 1].content}
-                </pre>
-              ) : (
-                <p className="text-slate-400 text-sm">文档内容为空</p>
-              )}
-            </div>
-            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-100">
-              <span>创建人：{getUserById(selectedDoc.createdBy)?.name || '未知'}</span>
-              <span>创建时间：{formatDateTime(selectedDoc.createdAt)}</span>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </Modal>
     </PageContainer>
   );

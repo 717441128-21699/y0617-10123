@@ -11,7 +11,7 @@ const rawSentiment = [
   // ===== evt_001: 产品质量投诉事件 (7天数据) =====
   {
     id: 'sent_001_01',
-    eventId: 'evt_001',
+    eventId: 'e001',
     recordedAt: '2026-06-10T18:00:00Z',
     mentionCount: 152000,
     negativeCount: 87200,
@@ -26,7 +26,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_001_02',
-    eventId: 'evt_001',
+    eventId: 'e001',
     recordedAt: '2026-06-11T18:00:00Z',
     mentionCount: 685000,
     negativeCount: 389000,
@@ -41,7 +41,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_001_03',
-    eventId: 'evt_001',
+    eventId: 'e001',
     recordedAt: '2026-06-12T18:00:00Z',
     mentionCount: 1250000,
     negativeCount: 612000,
@@ -56,7 +56,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_001_04',
-    eventId: 'evt_001',
+    eventId: 'e001',
     recordedAt: '2026-06-13T18:00:00Z',
     mentionCount: 890000,
     negativeCount: 373000,
@@ -71,7 +71,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_001_05',
-    eventId: 'evt_001',
+    eventId: 'e001',
     recordedAt: '2026-06-14T18:00:00Z',
     mentionCount: 520000,
     negativeCount: 187000,
@@ -86,7 +86,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_001_06',
-    eventId: 'evt_001',
+    eventId: 'e001',
     recordedAt: '2026-06-15T18:00:00Z',
     mentionCount: 350000,
     negativeCount: 112000,
@@ -101,7 +101,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_001_07',
-    eventId: 'evt_001',
+    eventId: 'e001',
     recordedAt: '2026-06-16T18:00:00Z',
     mentionCount: 280000,
     negativeCount: 81200,
@@ -118,7 +118,7 @@ const rawSentiment = [
   // ===== evt_002: 高管言论争议事件 (5天数据) =====
   {
     id: 'sent_002_01',
-    eventId: 'evt_002',
+    eventId: 'e002',
     recordedAt: '2026-06-12T20:00:00Z',
     mentionCount: 285000,
     negativeCount: 215000,
@@ -133,7 +133,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_002_02',
-    eventId: 'evt_002',
+    eventId: 'e002',
     recordedAt: '2026-06-13T20:00:00Z',
     mentionCount: 2150000,
     negativeCount: 1520000,
@@ -148,7 +148,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_002_03',
-    eventId: 'evt_002',
+    eventId: 'e002',
     recordedAt: '2026-06-14T20:00:00Z',
     mentionCount: 1820000,
     negativeCount: 1080000,
@@ -163,7 +163,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_002_04',
-    eventId: 'evt_002',
+    eventId: 'e002',
     recordedAt: '2026-06-15T20:00:00Z',
     mentionCount: 980000,
     negativeCount: 490000,
@@ -178,7 +178,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_002_05',
-    eventId: 'evt_002',
+    eventId: 'e002',
     recordedAt: '2026-06-16T20:00:00Z',
     mentionCount: 565000,
     negativeCount: 248000,
@@ -195,7 +195,7 @@ const rawSentiment = [
   // ===== evt_003: 数据安全传言事件 (5天数据) =====
   {
     id: 'sent_003_01',
-    eventId: 'evt_003',
+    eventId: 'e003',
     recordedAt: '2026-06-14T18:00:00Z',
     mentionCount: 32000,
     negativeCount: 21000,
@@ -209,7 +209,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_003_02',
-    eventId: 'evt_003',
+    eventId: 'e003',
     recordedAt: '2026-06-15T18:00:00Z',
     mentionCount: 95000,
     negativeCount: 52000,
@@ -223,7 +223,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_003_03',
-    eventId: 'evt_003',
+    eventId: 'e003',
     recordedAt: '2026-06-16T18:00:00Z',
     mentionCount: 62000,
     negativeCount: 25000,
@@ -237,7 +237,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_003_04',
-    eventId: 'evt_003',
+    eventId: 'e003',
     recordedAt: '2026-06-17T18:00:00Z',
     mentionCount: 42000,
     negativeCount: 14000,
@@ -251,7 +251,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_003_05',
-    eventId: 'evt_003',
+    eventId: 'e003',
     recordedAt: '2026-06-18T18:00:00Z',
     mentionCount: 28000,
     negativeCount: 7200,
@@ -267,7 +267,7 @@ const rawSentiment = [
   // ===== evt_004: 服务态度投诉事件 (5天数据) =====
   {
     id: 'sent_004_01',
-    eventId: 'evt_004',
+    eventId: 'e004',
     recordedAt: '2026-06-05T20:00:00Z',
     mentionCount: 12500,
     negativeCount: 8500,
@@ -281,7 +281,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_004_02',
-    eventId: 'evt_004',
+    eventId: 'e004',
     recordedAt: '2026-06-06T20:00:00Z',
     mentionCount: 45000,
     negativeCount: 28000,
@@ -295,7 +295,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_004_03',
-    eventId: 'evt_004',
+    eventId: 'e004',
     recordedAt: '2026-06-07T20:00:00Z',
     mentionCount: 68000,
     negativeCount: 35000,
@@ -309,7 +309,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_004_04',
-    eventId: 'evt_004',
+    eventId: 'e004',
     recordedAt: '2026-06-08T20:00:00Z',
     mentionCount: 38000,
     negativeCount: 14000,
@@ -323,7 +323,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_004_05',
-    eventId: 'evt_004',
+    eventId: 'e004',
     recordedAt: '2026-06-09T20:00:00Z',
     mentionCount: 18000,
     negativeCount: 4500,
@@ -339,7 +339,7 @@ const rawSentiment = [
   // ===== evt_005: 价格歧视争议事件 (7天完整数据) =====
   {
     id: 'sent_005_01',
-    eventId: 'evt_005',
+    eventId: 'e005',
     recordedAt: '2026-05-20T20:00:00Z',
     mentionCount: 208000,
     negativeCount: 158000,
@@ -354,7 +354,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_005_02',
-    eventId: 'evt_005',
+    eventId: 'e005',
     recordedAt: '2026-05-21T20:00:00Z',
     mentionCount: 3250000,
     negativeCount: 2080000,
@@ -369,7 +369,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_005_03',
-    eventId: 'evt_005',
+    eventId: 'e005',
     recordedAt: '2026-05-22T20:00:00Z',
     mentionCount: 5850000,
     negativeCount: 2980000,
@@ -384,7 +384,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_005_04',
-    eventId: 'evt_005',
+    eventId: 'e005',
     recordedAt: '2026-05-23T20:00:00Z',
     mentionCount: 4200000,
     negativeCount: 1680000,
@@ -399,7 +399,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_005_05',
-    eventId: 'evt_005',
+    eventId: 'e005',
     recordedAt: '2026-05-24T20:00:00Z',
     mentionCount: 2150000,
     negativeCount: 680000,
@@ -414,7 +414,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_005_06',
-    eventId: 'evt_005',
+    eventId: 'e005',
     recordedAt: '2026-05-25T20:00:00Z',
     mentionCount: 980000,
     negativeCount: 245000,
@@ -429,7 +429,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_005_07',
-    eventId: 'evt_005',
+    eventId: 'e005',
     recordedAt: '2026-05-26T20:00:00Z',
     mentionCount: 450000,
     negativeCount: 90000,
@@ -446,7 +446,7 @@ const rawSentiment = [
   // ===== evt_006: 供应链延迟事件 (2天数据) =====
   {
     id: 'sent_006_01',
-    eventId: 'evt_006',
+    eventId: 'e006',
     recordedAt: '2026-06-16T18:00:00Z',
     mentionCount: 5200,
     negativeCount: 3100,
@@ -460,7 +460,7 @@ const rawSentiment = [
   },
   {
     id: 'sent_006_02',
-    eventId: 'evt_006',
+    eventId: 'e006',
     recordedAt: '2026-06-17T18:00:00Z',
     mentionCount: 12800,
     negativeCount: 6500,
